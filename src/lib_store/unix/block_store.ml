@@ -1208,9 +1208,9 @@ let create_merging_thread block_store ~history_mode ~old_ro_store ~old_rw_store
   in
   return (new_ro_store, new_savepoint, new_caboose)
 
-let merge_stores block_store ~(on_error : tztrace -> unit tzresult Lwt.t)
-    ~finalizer ~history_mode ~new_head ~new_head_metadata
-    ~cementing_highwatermark =
+let merge_stores ?trigger_gc_callback block_store
+    ~(on_error : tztrace -> unit tzresult Lwt.t) ~finalizer ~history_mode
+    ~new_head ~new_head_metadata ~cementing_highwatermark =
   let open Lwt_result_syntax in
   let* () = fail_when block_store.readonly Cannot_write_in_readonly in
   (* Do not allow multiple merges: force waiting for a potential
@@ -1297,6 +1297,19 @@ let merge_stores block_store ~(on_error : tztrace -> unit tzresult Lwt.t)
                            section, in case it needs to access the block
                            store. *)
                         let* () = finalizer new_head_lafl in
+                        (* We can now trigger the context GC *)
+                        let* () =
+                          if not History_mode.(equal history_mode Archive) then
+                            match trigger_gc_callback with
+                            | None -> return_unit
+                            | Some f ->
+                                let*! () =
+                                  Store_events.(
+                                    emit start_context_gc new_head_lafl)
+                                in
+                                f (fst new_savepoint)
+                          else return_unit
+                        in
                         (* The merge operation succeeded, the store is now idle. *)
                         block_store.merging_thread <- None ;
                         let* () = write_status block_store Idle in

@@ -564,6 +564,10 @@ let preapply w ?canceler chain_store ~predecessor ~timestamp ~protocol_data
       (* validation cases *)
       assert false
 
+let unload_context w context_hash =
+  let bv = Worker.state w in
+  Block_validator_process.unload bv.validation_process context_hash
+
 let fetch_and_compile_protocol w =
   let bv = Worker.state w in
   Protocol_validator.fetch_and_compile_protocol bv.protocol_validator

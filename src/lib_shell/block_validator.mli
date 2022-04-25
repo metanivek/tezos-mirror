@@ -137,6 +137,13 @@ val fetch_and_compile_protocol :
   Protocol_hash.t ->
   Registered_protocol.t tzresult Lwt.t
 
+(** [unload bv chain_store context_hash] moves the all the contexts
+   below the give [context_hash] from the upper layer to the lower
+   layer. For full and rolling nodes, this is considered as a garbage
+   collection. *)
+val unload_context :
+  t -> Store.chain_store -> Context_hash.t -> unit tzresult Lwt.t
+
 val shutdown : t -> unit Lwt.t
 
 val running_worker : unit -> t

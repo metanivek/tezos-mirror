@@ -106,6 +106,12 @@ val precheck_block :
   Operation.t trace trace ->
   unit tzresult Lwt.t
 
+(** [unload bvp chain_store context_hash] moves the all the contexts
+   below the give [context_hash] from the upper layer to the lower
+   layer. For full and rolling nodes, this is considered as a garbage
+   collection. *)
+val unload : t -> Store.chain_store -> Context_hash.t -> unit tzresult Lwt.t
+
 val commit_genesis : t -> chain_id:Chain_id.t -> Context_hash.t tzresult Lwt.t
 
 (** [init_test_chain] must only be called on a forking block. *)

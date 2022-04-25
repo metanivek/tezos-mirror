@@ -211,6 +211,15 @@ let end_merging_stores =
     ~pp1:Time.System.Span.pp_hum
     ("time", Time.System.Span.encoding)
 
+let start_context_gc =
+  declare_1
+    ~section
+    ~level:Notice
+    ~name:""
+    ~msg:"running context garbage collection up to level {lafl}"
+    ~pp1:pp_int32
+    ("lafl", Data_encoding.int32)
+
 let try_waiting_for_merge_termination =
   declare_0
     ~section

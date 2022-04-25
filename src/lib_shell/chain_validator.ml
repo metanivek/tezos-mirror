@@ -435,6 +435,16 @@ let may_flush_or_update_prevalidator parameters event prevalidator chain_db
           live_blocks
           live_operations
 
+let may_unload_context w chain_store block_hash =
+  let open Lwt_result_syntax in
+  let* b = Store.Block.read_block chain_store block_hash in
+  let savepoint_context_hash = Store.Block.context_hash b in
+  let nv = Worker.state w in
+  Block_validator.unload_context
+    nv.parameters.block_validator
+    chain_store
+    savepoint_context_hash
+
 let on_validation_request w peer start_testchain active_chains spawn_child block
     =
   let open Lwt_result_syntax in
@@ -454,7 +464,12 @@ let on_validation_request w peer start_testchain active_chains spawn_child block
   let accepted_head = Fitness.(new_fitness > head_fitness) in
   if not accepted_head then return Event.Ignored_head
   else
-    let* o = Store.Chain.set_head chain_store block in
+    let* o =
+      Store.Chain.set_head
+        ~trigger_gc_callback:(may_unload_context w chain_store)
+        chain_store
+        block
+    in
     match o with
     | None ->
         (* None means that the given head is below a new_head and

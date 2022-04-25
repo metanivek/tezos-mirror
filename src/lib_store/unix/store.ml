@@ -1344,7 +1344,7 @@ module Chain = struct
       (Int.to_float (List.length new_alternate_heads)) ;
     return_unit
 
-  let set_head chain_store new_head =
+  let set_head ?trigger_gc_callback chain_store new_head =
     let open Lwt_result_syntax in
     Shared.update_with chain_store.chain_state (fun chain_state ->
         (* The merge cannot finish until we release the lock on the
@@ -1483,6 +1483,7 @@ module Chain = struct
                        done so this call is expected to return quickly. *)
                   let* () =
                     Block_store.merge_stores
+                      ?trigger_gc_callback
                       chain_store.block_store
                       ~on_error
                       ~finalizer

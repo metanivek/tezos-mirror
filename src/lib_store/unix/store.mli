@@ -733,16 +733,17 @@ module Chain : sig
     block:Block.t ->
     (Block_hash.Set.t * Operation_hash.Set.t) tzresult Lwt.t
 
-  (** [set_head chain_store block] promotes the [block] as head of the
-      [chain_store] and triggers an asynchronous store merge if a
-      cycle is ready to be cemented. Triggering a merge will update
-      the savepoint, checkpoint and caboose consistently with the
-      [chain_store]'s history mode. This function returns the previous
-      head or [None] if the given [block] is below one of the current
-      known heads. If [block] belongs to a new branch, the previous
-      head will also be stored as an alternate head. Setting a new
-      head will fail when the block is not fit to be promoted as head:
-      too old or no metadata.
+  (** [set_head ?trigger_gc_callback chain_store block] promotes the
+      [block] as head of the [chain_store] and triggers an
+      asynchronous store merge if a cycle is ready to be
+      cemented. Triggering a merge will update the savepoint,
+      checkpoint and caboose consistently with the [chain_store]'s
+      history mode. This function returns the previous head or [None]
+      if the given [block] is below one of the current known heads. If
+      [block] belongs to a new branch, the previous head will also be
+      stored as an alternate head. Setting a new head will fail when
+      the block is not fit to be promoted as head: too old or no
+      metadata.
 
       After a merge:
 
@@ -760,6 +761,9 @@ module Chain : sig
       Note: lafl(new_head) is the last allowed fork level of the new
       head.
 
+      [trigger_gc_callback] is a callback to the context's GC. It is
+      called, if needed, depending on the history mode.
+
       {b Warnings:}
 
       - We expect blocks to be sequentially promoted as head using
@@ -767,7 +771,11 @@ module Chain : sig
 
       - If a merge is triggered while another is happening, this
         function will block until the first merge is resolved. *)
-  val set_head : chain_store -> Block.t -> Block.t option tzresult Lwt.t
+  val set_head :
+    ?trigger_gc_callback:(Block_hash.t -> unit tzresult Lwt.t) ->
+    chain_store ->
+    Block.t ->
+    Block.t option tzresult Lwt.t
 
   (** [known_heads chain_store] returns the list of alternate heads for
       [chain_store]. *)

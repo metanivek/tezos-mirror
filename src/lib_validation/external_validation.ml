@@ -346,6 +346,15 @@ let case_precheck tag =
           hash;
         })
 
+let case_unload tag =
+  let open Data_encoding in
+  case
+    tag
+    ~title:"unload"
+    (obj1 (req "context_hash" Context_hash.encoding))
+    (function Unload {context_hash} -> Some context_hash | _ -> None)
+    (fun context_hash -> Unload {context_hash})
+
 let request_encoding =
   let open Data_encoding in
   union
@@ -391,6 +400,7 @@ let request_encoding =
         (fun c -> Reconfigure_event_logging c);
       case_preapply (Tag 7);
       case_precheck (Tag 8);
+      case_unload (Tag 9);
     ]
 
 let send pin encoding data =

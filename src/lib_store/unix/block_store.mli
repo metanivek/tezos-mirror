@@ -289,6 +289,7 @@ val await_merging : block_store -> unit Lwt.t
     in concurrent intertwining causing the cementing to be out of
     order. *)
 val merge_stores :
+  ?trigger_gc_callback:(Block_hash.t -> unit tzresult Lwt.t) ->
   block_store ->
   on_error:(tztrace -> unit tzresult Lwt.t) ->
   finalizer:(int32 -> unit tzresult Lwt.t) ->

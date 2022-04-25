@@ -84,6 +84,8 @@ module type S = sig
     Operation.t trace trace ->
     unit tzresult Lwt.t
 
+  val unload : t -> Store.chain_store -> Context_hash.t -> unit tzresult Lwt.t
+
   val commit_genesis : t -> chain_id:Chain_id.t -> Context_hash.t tzresult Lwt.t
 
   (** [init_test_chain] must only be called on a forking block. *)
@@ -337,6 +339,14 @@ module Internal_validator_process = struct
       ~cache
       header
       operations
+
+  let unload _validator chain_store context_hash =
+    let open Lwt_result_syntax in
+    let context_index =
+      Store.context_index (Store.Chain.global_store chain_store)
+    in
+    let*! () = Context_ops.gc context_index context_hash in
+    return_unit
 
   let commit_genesis validator ~chain_id =
     let context_index = get_context_index validator.chain_store in
@@ -809,6 +819,10 @@ module External_validator_process = struct
     in
     send_request validator request Data_encoding.unit
 
+  let unload validator _chain_store context_hash =
+    let request = External_validation.Unload {context_hash} in
+    send_request validator request Data_encoding.unit
+
   let commit_genesis validator ~chain_id =
     let request = External_validation.Commit_genesis {chain_id} in
     send_request validator request Context_hash.encoding
@@ -950,6 +964,10 @@ let apply_block ?(simulate = false)
 let precheck_block (E {validator_process = (module VP); validator}) chain_store
     ~predecessor header operations =
   VP.precheck_block validator chain_store ~predecessor header operations
+
+let unload (E {validator_process = (module VP); validator}) chain_store
+    context_hash =
+  VP.unload validator chain_store context_hash
 
 let commit_genesis (E {validator_process = (module VP); validator}) ~chain_id =
   VP.commit_genesis validator ~chain_id
