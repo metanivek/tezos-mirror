@@ -337,6 +337,34 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
            span ;
          Lwt.return_unit
 
+  let gc index context_hash =
+    let open Lwt_syntax in
+    let repo = index.repo in
+    let* commit_opt =
+      Store.Commit.of_hash index.repo (Hash.of_context_hash context_hash)
+    in
+    match commit_opt with
+    | None ->
+        Fmt.failwith "%a: unknown context hash" Context_hash.pp context_hash
+    | Some commit -> (
+        Logs.info (fun m ->
+            m "Launch GC for commit %a@." Context_hash.pp context_hash) ;
+        let finished = function
+          | Ok (stats : Store.Gc.stats) ->
+              Logs.info (fun m ->
+                  m
+                    "GC ended. It took %.4fms. Finalisation took %.4fms@."
+                    stats.duration
+                    stats.finalisation_duration)
+          | Error (`Msg err) -> Logs.warn (fun m -> m "GC failed, %s@." err)
+        in
+        let commit_key = Store.Commit.key commit in
+        let* launch_result = Store.Gc.run ~finished repo commit_key in
+        match launch_result with
+        | Ok _ -> Lwt.return_unit
+        | Error (`Msg err) ->
+            Logs.warn (fun m -> m "GC launch failed, %s@." err) |> Lwt.return)
+
   (*-- Generic Store Primitives ------------------------------------------------*)
 
   let data_key key = current_data_key @ key
