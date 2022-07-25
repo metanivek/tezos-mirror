@@ -274,14 +274,17 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
      Lwt.catch
        (fun () ->
          let c0 = Mtime_clock.counter () in
-         let* wait = Store.finalise_gc ~wait:false repo in
+         let* wait = Store.Gc.finalise_exn ~wait:false repo in
          let span = Mtime_clock.count c0 |> Mtime.Span.to_ms in
-         if wait then
+         let () = match wait with | `Finalised stats ->
            Format.printf
-             "Gc ended on commit %a, it took %.4fms@."
+             "Gc ended on commit %a, gc took %.4fms finalisation %.4fms@."
              Context_hash.pp
              context_hash
-             span ;
+             stats.Store.Gc.elapsed
+             span
+         | _ -> ()
+         in
          Lwt.return_unit)
        catch_errors
 
@@ -303,7 +306,7 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
      | Some commit ->
          let commit_key = Store.Commit.key commit in
          let c0 = Mtime_clock.counter () in
-         let* _ = Store.start_gc ~throttle:`Block repo commit_key in
+         let* _ = Store.Gc.start_exn repo commit_key in
          let span = Mtime_clock.count c0 |> Mtime.Span.to_ms in
          Format.printf
            "Trigger GC for commit %a, it took %.4fms@."
