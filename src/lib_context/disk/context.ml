@@ -330,12 +330,12 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         Logs.info (fun m ->
             m "Launch GC for commit %a@." Context_hash.pp context_hash) ;
         let finished = function
-          | Ok (stats : Store.Gc.stats) ->
+          | Ok stats ->
               Logs.info (fun m ->
                   m
-                    "GC ended. It took %.4fms. Finalisation took %.4fms@."
-                    stats.duration
-                    stats.finalisation_duration)
+                    "GC ended. %a@."
+                         (Irmin.Type.pp Store.Gc.stats_t) stats
+                )
           | Error (`Msg err) -> Logs.warn (fun m -> m "GC failed, %s@." err)
         in
         let commit_key = Store.Commit.key commit in
