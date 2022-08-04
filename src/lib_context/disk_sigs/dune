@@ -2,8 +2,8 @@
 ; Edit file manifest/main.ml instead.
 
 (library
- (name tezos_context_disk)
- (public_name tezos-context.disk)
+ (name tezos_context_disk_sigs)
+ (public_name tezos-context.disk_sigs)
  (instrumentation (backend bisect_ppx))
  (libraries
   tezos-shell-services
@@ -20,7 +20,6 @@
   tezos-context.sigs
   tezos-context.helpers
   tezos-context.encoding
-  tezos-context.disk_sigs
   tezos-context.memory
   tezos-context.dump)
  (flags
