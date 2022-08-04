@@ -204,6 +204,8 @@ module Make
 
   type error += Cannot_create_file = Impl.Cannot_create_file
 
+  type error += Cannot_retrieve_commit_info = Impl.Cannot_retrieve_commit_info
+
   type error += Cannot_open_file = Impl.Cannot_open_file
 
   type error += Cannot_find_protocol = Impl.Cannot_find_protocol

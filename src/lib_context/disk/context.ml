@@ -318,26 +318,6 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
     hash
 
   let gc index context_hash =
-     let open Lwt_syntax in
-     let repo = index.repo in
-     let* o =
-       Store.Commit.of_hash index.repo (Hash.of_context_hash context_hash)
-     in
-     match o with
-     | None -> assert false
-     | Some commit ->
-         let commit_key = Store.Commit.key commit in
-         let c0 = Mtime_clock.counter () in
-         let* _ = Store.Gc.start_exn repo commit_key in
-         let span = Mtime_clock.count c0 |> Mtime.Span.to_ms in
-         Format.printf
-           "Trigger GC for commit %a, it took %.4fms@."
-           Context_hash.pp
-           context_hash
-           span ;
-         Lwt.return_unit
-
-  let gc index context_hash =
     let open Lwt_syntax in
     let repo = index.repo in
     let* commit_opt =
