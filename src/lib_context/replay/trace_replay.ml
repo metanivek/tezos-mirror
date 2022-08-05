@@ -623,7 +623,7 @@ struct
     Lwt.return_unit
 
   let hash_per_level = Stdlib.Hashtbl.create 0
-  let gc_every = 20
+  let gc_every = Int.max_int
   let gc_distance_in_the_past = 20
 
   let exec_commit rs ((time, message, c), hash) =
