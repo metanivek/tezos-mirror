@@ -122,8 +122,6 @@ struct
 
     type entry = string * M.value
 
-    let step_t = Irmin.Type.string
-
     let metadata_t =
       let some = "\255\000\000\000\000\000\000\000" in
       let none = "\000\000\000\000\000\000\000\000" in
@@ -144,25 +142,29 @@ struct
       let open Irmin.Type in
       record "Tree.entry" (fun _ _ _ -> assert false)
       |+ field "kind" metadata_t metadata_of_entry
-      |+ field "name" step_t fst
+      |+ field "name" string fst
       |+ field "hash" Hash.t hash_of_entry
       |> sealr
 
     let entries_t : entry list Irmin.Type.t =
       Irmin.Type.(list ~len:`Int64 entry_t)
 
+    let pre_hash_entry = Irmin.Type.(unstage (pre_hash entry_t))
+
     let pre_hash_entries = Irmin.Type.(unstage (pre_hash entries_t))
 
-    let compare_entry (x, _) (y, _) = String.compare x y
+    let encode_bin_int64 = Irmin.Type.(unstage (pre_hash int64))
 
-    let step_to_string = Irmin.Type.(unstage (to_bin_string Path.step_t))
-
-    let str_key (k, v) = (step_to_string k, v)
-
-    let pre_hash t =
-      M.list t |> List.map str_key
-      |> List.fast_sort compare_entry
-      |> pre_hash_entries
+    let pre_hash t f =
+      match M.length t with
+      | 0 -> pre_hash_entries [] f
+      | 1 -> (
+          match M.list t |> List.hd with
+          | None -> assert false (* length is 1 *)
+          | Some e ->
+              encode_bin_int64 1L f ;
+              pre_hash_entry e f)
+      | _ -> pre_hash_entries (M.list t) f
   end
 
   include M
