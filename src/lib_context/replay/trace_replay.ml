@@ -638,10 +638,10 @@ struct
         let gc_lvl = rs.current_row.level - gc_distance_in_the_past in
         match Stdlib.Hashtbl.find_opt hash_per_level gc_lvl with
         | None ->
-           Fmt.epr "\nlvl%d: Too soon for GC on %d\n%!" rs.current_row.level gc_lvl;
+           (* Fmt.epr "\nlvl%d: Too soon for GC on %d\n%!" rs.current_row.level gc_lvl; *)
            Lwt.return_unit
         | Some h ->
-           Fmt.epr "\nlvl%d: Go for gc on %d \n%!" rs.current_row.level gc_lvl;
+           (* Fmt.epr "\nlvl%d: Attempting to start GC on %d \n%!" rs.current_row.level gc_lvl; *)
            Context.gc rs.index h
       ) else
         Lwt.return_unit
