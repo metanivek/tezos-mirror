@@ -206,6 +206,8 @@ module Make
 
   type error += Cannot_open_file = Impl.Cannot_open_file
 
+  type error += Cannot_retrieve_commit_info = Impl.Cannot_retrieve_commit_info
+
   type error += Cannot_find_protocol = Impl.Cannot_find_protocol
 
   type error += Suspicious_file = Impl.Suspicious_file
@@ -395,6 +397,8 @@ module Make
     let make_repo = Impl.Tree.make_repo
 
     let raw_encoding = Impl.Tree.raw_encoding
+
+    let unshallow x = Impl.Tree.unshallow (Tree_traced.unwrap x) >|= Tree_traced.wrap
   end
 
   (* [_o i_ ___] - From context to tree *)
@@ -846,4 +850,9 @@ module Make
 
   let flush x =
     Impl.flush (Context_traced.unwrap x) >|= Context_traced.wrap
+
+  let is_gc_allowed x = Impl.is_gc_allowed (Index_abstract.unwrap x)
+
+  let merkle_tree_v2 x y z =
+    Impl.merkle_tree_v2 (Context_traced.unwrap x) y z
 end

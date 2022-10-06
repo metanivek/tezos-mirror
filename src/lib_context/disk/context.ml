@@ -339,10 +339,11 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         Logs.info (fun m ->
             m "Launch GC for commit %a@." Context_hash.pp context_hash) ;
         let finished = function
-          | Ok (stats : Store.Gc.stats) ->
+          | Ok (stats) ->
+              let x = Irmin_pack_unix.Stats.Latest_gc.total_duration stats in
+              let y = Irmin_pack_unix.Stats.Latest_gc.finalise_duration stats in
               Events.(emit ending_gc)
-                ( Time.System.Span.of_seconds_exn stats.duration,
-                  Time.System.Span.of_seconds_exn stats.finalisation_duration )
+                ( Time.System.Span.of_seconds_exn x, Time.System.Span.of_seconds_exn y)
           | Error (`Msg err) -> Events.(emit gc_failure) err
         in
         let commit_key = Store.Commit.key commit in
@@ -922,7 +923,7 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         (* All commit objects in the context are indexed, so it's safe to build a
            hash-only key referencing them. *)
         List.map
-          (fun h -> Hash.of_context_hash h |> Irmin_pack.Pack_key.v_indexed)
+          (fun h -> Hash.of_context_hash h |> Irmin_pack_unix.Pack_key.v_indexed)
           parents
       in
       let+ c = Store.Commit.v ctxt.index.repo ~info ~parents ctxt.tree in
