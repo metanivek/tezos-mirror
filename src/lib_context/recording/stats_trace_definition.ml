@@ -89,7 +89,7 @@ module V0 = struct
   [@@deriving repr]
 
   (** Stats extracted from [Gc.quick_stat ()]. *)
-  type gc = {
+  type ocaml_gc = {
     minor_words : float;
     promoted_words : float;
     major_words : float;
@@ -133,7 +133,7 @@ module V0 = struct
     pack : pack;
     tree : tree;
     index : index;
-    gc : gc;
+    ocaml_gc : ocaml_gc;
     disk : disk;
     rusage : rusage;
     timestamp_wall : float;
@@ -286,7 +286,7 @@ module V0 = struct
   [@@deriving repr]
 
   (** Stats extracted from [Gc.get ()]. *)
-  type gc_control = {
+  type ocaml_gc_control = {
     minor_heap_size : int;
     major_heap_increment : int;
     space_overhead : int;
@@ -344,7 +344,7 @@ module V0 = struct
     word_size : int;
     os_type : string;
     big_endian : bool;
-    gc_control : gc_control;
+    ocaml_gc_control : ocaml_gc_control;
     runtime_parameters : string;
     backend_type : [`Native | `Bytecode | `Other of string];
     ocaml_version : string;
@@ -359,15 +359,97 @@ module V1 = struct
 
   let version = 1
 
-  type gc_stats = unit
+  (** Duplicated from Irmin *)
+  module Gc = struct
+  type rusage = {
+    maxrss : int64;
+    minflt : int64;
+    majflt : int64;
+    inblock : int64;
+    oublock : int64;
+    nvcsw : int64;
+    nivcsw : int64;
+  }
   [@@deriving repr]
+
+  type duration = { wall : float; sys : float; user : float } [@@deriving repr]
+
+  type index = {
+    bytes_read : int;
+    nb_reads : int;
+    bytes_written : int;
+    nb_writes : int;
+  }
+  [@@deriving repr]
+
+  type pack_store = {
+    appended_hashes : int;
+    appended_offsets : int;
+    total : int;
+    from_staging : int;
+    from_lru : int;
+    from_pack_direct : int;
+    from_pack_indexed : int;
+  }
+  [@@deriving repr]
+
+  type inode = {
+    inode_add : int;
+    inode_remove : int;
+    inode_of_seq : int;
+    inode_of_raw : int;
+    inode_rec_add : int;
+    inode_rec_remove : int;
+    inode_to_binv : int;
+    inode_decode_bin : int;
+    inode_encode_bin : int;
+  }
+  [@@deriving repr]
+
+  type step = {
+    duration : duration;
+    rusage : rusage;
+    ocaml_gc : ocaml_gc;
+    index : index;
+    pack_store : pack_store;
+    inode : inode;
+  }
+  [@@deriving repr]
+
+  type int63 = Optint.Int63.t [@@deriving repr]
+
+  type worker = {
+    initial_maxrss : int64;
+    initial_heap_words : int;
+    initial_top_heap_words : int;
+    initial_stack_size : int;
+    steps : (string * step) list;
+    files : (string * int63) list;
+    objects_traversed : int63;
+    suffix_transfers : int63 list;
+  }
+  [@@deriving repr]
+
+  type t = {
+    generation : int;
+    commit_offset : int63;
+    before_suffix_start_offset : int63;
+    before_suffix_end_offset : int63;
+    after_suffix_start_offset : int63;
+    after_suffix_end_offset : int63;
+    steps : (string * duration) list;
+    worker : worker;
+  }
+  [@@deriving repr]
+
+  end
 
   type row =
     [ `Frequent_op of Frequent_op.tag * Frequent_op.payload
     | `Commit of Commit_op.payload
     | `Close of Stats_op.payload
     | `Dump_context of Stats_op.payload
-    | `Gc_finalised of gc_stats ]
+    | `Gc_finalised of Gc.t ]
   [@@deriving repr]
 end
 

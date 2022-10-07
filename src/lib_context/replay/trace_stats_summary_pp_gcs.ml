@@ -23,6 +23,29 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+module Pb = struct
+  include PrintBox
+
+  (* Some utilities to work with lists instead of array *)
+
+  let transpose_matrix l =
+    l |> List.map Array.of_list |> Array.of_list |> PrintBox.transpose
+    |> Array.to_list |> List.map Array.to_list
+
+  let matrix_to_text m = List.map (List.map PrintBox.text) m
+
+  let align_matrix where = List.map (List.map (PrintBox.align ~h:where ~v:`Top))
+
+  (** Dirty trick to only have vertical bars, and not the horizontal ones *)
+  let matrix_with_column_spacers =
+    let rec interleave sep = function
+      | ([_] | []) as l -> l
+      | hd :: tl -> hd :: sep :: interleave sep tl
+    in
+    List.map (fun l ->
+        PrintBox.text " | " :: interleave (PrintBox.text " | ") l)
+end
+
 let pp_gcs ppf (summary_names, summaries) =
   ignore (summary_names, summaries);
   Format.fprintf ppf "DELICIEUX"

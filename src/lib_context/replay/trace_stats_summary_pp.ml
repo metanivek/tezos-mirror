@@ -231,22 +231,22 @@ module Table0 = struct
         | `Pack -> "pack"
         | `Pack_layered -> "pack-layered"
         | `Pack_mem -> "pack-mem")
-    | `Gc_minor_heap_size -> string_of_int s.header.gc_control.minor_heap_size
+    | `Gc_minor_heap_size -> string_of_int s.header.ocaml_gc_control.minor_heap_size
     | `Gc_major_heap_increment ->
-        string_of_int s.header.gc_control.major_heap_increment
-    | `Gc_space_overhead -> string_of_int s.header.gc_control.space_overhead
-    | `Gc_verbose -> string_of_int s.header.gc_control.verbose
-    | `Gc_max_overhead -> string_of_int s.header.gc_control.max_overhead
-    | `Gc_stack_limit -> string_of_int s.header.gc_control.stack_limit
+        string_of_int s.header.ocaml_gc_control.major_heap_increment
+    | `Gc_space_overhead -> string_of_int s.header.ocaml_gc_control.space_overhead
+    | `Gc_verbose -> string_of_int s.header.ocaml_gc_control.verbose
+    | `Gc_max_overhead -> string_of_int s.header.ocaml_gc_control.max_overhead
+    | `Gc_stack_limit -> string_of_int s.header.ocaml_gc_control.stack_limit
     | `Gc_allocation_policy ->
-        string_of_int s.header.gc_control.allocation_policy
-    | `Gc_window_size -> string_of_int s.header.gc_control.window_size
+        string_of_int s.header.ocaml_gc_control.allocation_policy
+    | `Gc_window_size -> string_of_int s.header.ocaml_gc_control.window_size
     | `Gc_custom_major_ratio ->
-        string_of_int s.header.gc_control.custom_major_ratio
+        string_of_int s.header.ocaml_gc_control.custom_major_ratio
     | `Gc_custom_minor_ratio ->
-        string_of_int s.header.gc_control.custom_minor_ratio
+        string_of_int s.header.ocaml_gc_control.custom_minor_ratio
     | `Gc_custom_minor_max_size ->
-        string_of_int s.header.gc_control.custom_minor_max_size
+        string_of_int s.header.ocaml_gc_control.custom_minor_max_size
 
   let extract_keys_from s set =
     match s.header.config.message with
@@ -594,13 +594,13 @@ module Table2 = struct
         pb
           ~f:(`RG, `RM, `RM)
           "gc.minor_words allocated"
-          (fun s -> s.gc.minor_words);
+          (fun s -> s.ocaml_gc.minor_words);
         pb
           ~f:(`RG, `RM, `RM)
           "gc.major_words allocated"
-          (fun s -> s.gc.major_words);
-        pb "gc.minor_collections" (fun s -> s.gc.minor_collections);
-        pb "gc.major_collections" (fun s -> s.gc.major_collections);
+          (fun s -> s.ocaml_gc.major_words);
+        pb "gc.minor_collections" (fun s -> s.ocaml_gc.minor_collections);
+        pb "gc.major_collections" (fun s -> s.ocaml_gc.major_collections);
         `Spacer;
         pb "rusage.utime" ~f:(`S, `S, `S) (fun s -> s.rusage.utime);
         pb "rusage.stime" ~f:(`S, `S, `S) (fun s -> s.rusage.stime);
@@ -753,7 +753,7 @@ module Table3 = struct
         span_durations ~f:(`S, `S) `Dump_context;
         span_durations ~f:(`S, `S) `Unseen;
         `Spacer;
-        v "Major heap bytes after commit" (fun s -> s.gc.major_heap_bytes);
+        v "Major heap bytes after commit" (fun s -> s.ocaml_gc.major_heap_bytes);
         `Spacer;
         `Data ((`P, `P), "CPU Usage", cpu_usage_variables);
       ]
@@ -1136,22 +1136,22 @@ module Table4 = struct
         pb "index.cumu_data_bytes per block *LA" (fun s ->
             s.index.cumu_data_bytes);
         `Spacer;
-        v "gc.minor_words allocated *C" (fun s -> s.gc.minor_words);
-        pb "gc.minor_words allocated per block *LA" (fun s -> s.gc.minor_words);
-        v "gc.promoted_words *C" (fun s -> s.gc.promoted_words);
-        v "gc.major_words allocated *C" (fun s -> s.gc.major_words);
-        pb "gc.major_words allocated per block *LA" (fun s -> s.gc.major_words);
-        v "gc.minor_collections *C" (fun s -> s.gc.minor_collections);
+        v "gc.minor_words allocated *C" (fun s -> s.ocaml_gc.minor_words);
+        pb "gc.minor_words allocated per block *LA" (fun s -> s.ocaml_gc.minor_words);
+        v "gc.promoted_words *C" (fun s -> s.ocaml_gc.promoted_words);
+        v "gc.major_words allocated *C" (fun s -> s.ocaml_gc.major_words);
+        pb "gc.major_words allocated per block *LA" (fun s -> s.ocaml_gc.major_words);
+        v "gc.minor_collections *C" (fun s -> s.ocaml_gc.minor_collections);
         pb "gc.minor_collections per block *LA" (fun s ->
-            s.gc.minor_collections);
-        v "gc.major_collections *C" (fun s -> s.gc.major_collections);
+            s.ocaml_gc.minor_collections);
+        v "gc.major_collections *C" (fun s -> s.ocaml_gc.major_collections);
         pb "gc.major_collections per block *LA" (fun s ->
-            s.gc.major_collections);
-        v "gc.compactions *C" (fun s -> s.gc.compactions);
+            s.ocaml_gc.major_collections);
+        v "gc.compactions *C" (fun s -> s.ocaml_gc.compactions);
         `Spacer;
         v ~f:`RM "gc.major heap bytes top *C" (fun s ->
-            s.gc.major_heap_top_bytes);
-        v ~f:`RM "gc.major heap bytes *LA" (fun s -> s.gc.major_heap_bytes);
+            s.ocaml_gc.major_heap_top_bytes);
+        v ~f:`RM "gc.major heap bytes *LA" (fun s -> s.ocaml_gc.major_heap_bytes);
         `Spacer;
         v "rusage.utime *C" ~f:`S (fun s -> s.rusage.utime);
         pb "rusage.utime per block *LA" ~f:`S (fun s -> s.rusage.utime);

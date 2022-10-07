@@ -48,7 +48,7 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
     mutable store_before : Def.store_before;
   }
 
-  let gc_control () =
+  let ocaml_gc_control () =
     let open Gc in
     let v = get () in
     Def.
@@ -152,7 +152,7 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
           new_merge_durations;
         }
 
-    let gc () =
+    let ocaml_gc () =
       let open Gc in
       let v = quick_stat () in
       Def.
@@ -212,7 +212,7 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
           pack = pack ();
           tree = tree ();
           index = index prev_merge_durations;
-          gc = gc ();
+          ocaml_gc = ocaml_gc ();
           disk = disk store_path;
           rusage = rusage ();
           timestamp_wall = now ();
@@ -291,7 +291,7 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
             | Sys.Other s -> `Other s);
           big_endian = Sys.big_endian;
           timeofday = Unix.gettimeofday ();
-          gc_control = gc_control ();
+          ocaml_gc_control = ocaml_gc_control ();
           runtime_parameters = Sys.runtime_parameters ();
           ocaml_version = Sys.ocaml_version;
           initial_stats =
@@ -460,14 +460,37 @@ struct
     | None -> raise Misc.Stats_trace_without_init
     | Some w -> w
 
-  let report_gc stats =
+  let report_gc (stats : Irmin_pack_unix.Stats.Latest_gc.stats) =
     (* TODO *)
     ignore stats;
     Fmt.epr "\n%!";
     Fmt.epr "Recorder.report_gc:\n%!";
     Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats;
     Fmt.epr "\n%!";
-    let stats = () in
+    let open Optint in
+    let open Def.Gc in
+    let worker = {
+      initial_maxrss = 0L;
+      initial_heap_words = 0;
+      initial_top_heap_words = 0;
+      initial_stack_size = 0;
+      steps = [];
+      files = [];
+      objects_traversed = Int63.zero;
+      suffix_transfers = [];
+    }
+    in
+    let stats = {
+      generation = 0;
+      commit_offset = Int63.zero;
+      before_suffix_start_offset = Int63.zero;
+      before_suffix_end_offset = Int63.zero;
+      after_suffix_start_offset = Int63.zero;
+      after_suffix_end_offset = Int63.zero;
+      steps = [];
+      worker;
+    }
+    in
     Writer.add_gc_row (get_writer ()) stats
 
   let () =

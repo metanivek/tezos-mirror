@@ -48,7 +48,7 @@ type last_row =
   | `Commit of Def.Commit_op.payload
   | `Dump_context of Def.Stats_op.payload ]
 
-type block = initial_row list * last_row * Def.gc_stats option
+type block = initial_row list * last_row * Def.Gc.t option
 
 (* Section 1/4 - Type of a summary. *)
 
@@ -369,7 +369,7 @@ type index = {
 }
 [@@deriving repr]
 
-type gc = {
+type ocaml_gc = {
   minor_words : bag_stat;
   promoted_words : bag_stat;
   major_words : bag_stat;
@@ -441,12 +441,12 @@ type t = {
   index : index;
   pack : pack;
   tree : tree;
-  gc : gc;
+  ocaml_gc : ocaml_gc;
   disk : disk;
   rusage : rusage;
   block_specs : block_specs;
   store : store;
-  gcs : Def.gc_stats list;
+  gcs : Def.Gc.t list;
 }
 [@@deriving repr]
 
@@ -1179,16 +1179,16 @@ let summarise' header block_count (block_seq : block Seq.t) =
       let ofi = float_of_int in
       let ws = header.Def.word_size / 8 |> float_of_int in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.gc.minor_words)
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.gc.promoted_words)
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.gc.major_words)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.gc.minor_collections)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.gc.major_collections)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.gc.compactions)
+      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.minor_words)
+      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.promoted_words)
+      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.major_words)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.minor_collections)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.major_collections)
+      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.compactions)
       |+ bs_folder_of_bag_getter ~is_linearly_increasing:false (fun bag ->
-             ofi bag.Def.gc.heap_words *. ws)
+             ofi bag.Def.ocaml_gc.heap_words *. ws)
       |+ bs_folder_of_bag_getter (fun bag ->
-             ofi bag.Def.gc.top_heap_words *. ws)
+             ofi bag.Def.ocaml_gc.top_heap_words *. ws)
       |> seal
     in
     Trace_common.Parallel_folders.folder
@@ -1323,7 +1323,7 @@ let summarise' header block_count (block_seq : block Seq.t) =
   in
 
   let construct (elapsed_wall, elapsed_cpu, op_count) elapsed_wall_over_blocks
-      elapsed_cpu_over_blocks span cpu_usage_variable pack tree index gc disk
+      elapsed_cpu_over_blocks span cpu_usage_variable pack tree index ocaml_gc disk
       rusage block_specs store gcs =
     {
       summary_hostname = Unix.gethostname ();
@@ -1344,7 +1344,7 @@ let summarise' header block_count (block_seq : block Seq.t) =
       tree;
       cpu_usage = cpu_usage_variable;
       index;
-      gc;
+      ocaml_gc;
       disk;
       rusage;
       block_specs;
