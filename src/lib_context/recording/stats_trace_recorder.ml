@@ -460,37 +460,177 @@ struct
     | None -> raise Misc.Stats_trace_without_init
     | Some w -> w
 
-  let report_gc (stats : Irmin_pack_unix.Stats.Latest_gc.stats) =
-    (* TODO *)
-    ignore stats;
+  module Gc = struct
+    module Src = Irmin_pack_unix.Stats.Latest_gc
+    module Dst = Def.Gc
+
+    let convert_duration Src.{ wall; sys; user } =
+      Dst.{ wall; sys; user }
+
+    let convert_rusage Src.{
+        maxrss ;
+        minflt ;
+        majflt ;
+        inblock ;
+        oublock ;
+        nvcsw ;
+        nivcsw ;
+      } =
+      Dst.{
+        maxrss ;
+        minflt ;
+        majflt ;
+        inblock ;
+        oublock ;
+        nvcsw ;
+        nivcsw ;
+      }
+
+    let convert_ocaml_gc Src.{
+        minor_words ;
+        promoted_words ;
+        major_words ;
+        minor_collections ;
+        major_collections ;
+        heap_words ;
+        compactions ;
+        top_heap_words ;
+        stack_size ;
+      } =
+      Def.{
+        minor_words ;
+        promoted_words ;
+        major_words ;
+        minor_collections ;
+        major_collections ;
+        heap_words ;
+        compactions ;
+        top_heap_words ;
+        stack_size ;
+        }
+
+    let convert_index Irmin_pack_unix.Stats.Index.{
+        bytes_read ;
+        nb_reads ;
+        bytes_written ;
+        nb_writes ;
+        _
+      } = Dst.{
+        bytes_read ;
+        nb_reads ;
+        bytes_written ;
+        nb_writes ;
+      }
+
+    let convert_pack_store Irmin_pack_unix.Stats.Pack_store.{
+        appended_hashes ;
+        appended_offsets ;
+        total ;
+        from_staging ;
+        from_lru ;
+        from_pack_direct ;
+        from_pack_indexed ;
+          } = Dst.{
+        appended_hashes ;
+        appended_offsets ;
+        total ;
+        from_staging ;
+        from_lru ;
+        from_pack_direct ;
+        from_pack_indexed ;
+        }
+
+    let convert_inode Irmin_pack.Stats.Inode.{
+        inode_add ;
+        inode_remove ;
+        inode_of_seq ;
+        inode_of_raw ;
+        inode_rec_add ;
+        inode_rec_remove ;
+        inode_to_binv ;
+        inode_decode_bin ;
+        inode_encode_bin ;
+      } = Dst.{
+        inode_add ;
+        inode_remove ;
+        inode_of_seq ;
+        inode_of_raw ;
+        inode_rec_add ;
+        inode_rec_remove ;
+        inode_to_binv ;
+        inode_decode_bin ;
+        inode_encode_bin ;
+      }
+
+    let convert_step Src.{
+        duration;
+        rusage;
+        ocaml_gc;
+        index;
+        pack_store;
+        inode;
+      } =
+      Dst.{
+        duration = convert_duration duration;
+        rusage = convert_rusage rusage;
+        ocaml_gc = convert_ocaml_gc ocaml_gc;
+        index  = convert_index index;
+        pack_store  = convert_pack_store pack_store;
+        inode = convert_inode inode;
+      }
+
+    let convert_worker Src.{
+          initial_maxrss;
+          initial_heap_words;
+          initial_top_heap_words;
+          initial_stack_size;
+          steps;
+          files;
+          objects_traversed;
+          suffix_transfers;
+        } =
+      let steps = List.map (fun (k, v) -> k, convert_step v) steps in
+      Dst.{
+        initial_maxrss;
+        initial_heap_words;
+        initial_top_heap_words;
+        initial_stack_size;
+        steps;
+        files;
+        objects_traversed;
+        suffix_transfers;
+        }
+
+    let convert Src.{
+          generation;
+          commit_offset;
+          before_suffix_start_offset;
+          before_suffix_end_offset;
+          after_suffix_start_offset;
+          after_suffix_end_offset;
+          steps;
+          worker;
+        } =
+      let steps = List.map (fun (k, v) -> k, convert_duration v) steps in
+      let worker = convert_worker worker in
+      Dst.{
+        generation;
+        commit_offset;
+        before_suffix_start_offset;
+        before_suffix_end_offset;
+        after_suffix_start_offset;
+        after_suffix_end_offset;
+        steps;
+        worker;
+      }
+  end
+
+  let report_gc stats =
     Fmt.epr "\n%!";
     Fmt.epr "Recorder.report_gc:\n%!";
     Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats;
     Fmt.epr "\n%!";
-    let open Optint in
-    let open Def.Gc in
-    let worker = {
-      initial_maxrss = 0L;
-      initial_heap_words = 0;
-      initial_top_heap_words = 0;
-      initial_stack_size = 0;
-      steps = [];
-      files = [];
-      objects_traversed = Int63.zero;
-      suffix_transfers = [];
-    }
-    in
-    let stats = {
-      generation = 0;
-      commit_offset = Int63.zero;
-      before_suffix_start_offset = Int63.zero;
-      before_suffix_end_offset = Int63.zero;
-      after_suffix_start_offset = Int63.zero;
-      after_suffix_end_offset = Int63.zero;
-      steps = [];
-      worker;
-    }
-    in
+    let stats = Gc.convert stats in
     Writer.add_gc_row (get_writer ()) stats
 
   let () =
