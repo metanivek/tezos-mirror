@@ -48,7 +48,7 @@ type last_row =
   | `Commit of Def.Commit_op.payload
   | `Dump_context of Def.Stats_op.payload ]
 
-type block = initial_row list * last_row
+type block = initial_row list * last_row * Def.gc_stats option
 
 (* Section 1/4 - Type of a summary. *)
 
@@ -427,10 +427,6 @@ type t = {
   moving_average_half_life_ratio : float;
   (* Stats from [Def.header]. *)
   header : Def.header;
-  (* config : Def.config; *)
-  (* hostname : string; *)
-  (* word_size : int; *)
-  (* timeofday : float; *)
   timestamp_wall0 : float;
   timestamp_cpu0 : float;
   (* Stats derived from [Def.row]s. *)
@@ -450,6 +446,7 @@ type t = {
   rusage : rusage;
   block_specs : block_specs;
   store : store;
+  gcs : Def.gc_stats list;
 }
 [@@deriving repr]
 
@@ -607,7 +604,7 @@ module Span_folder = struct
       }
     in
 
-    let accumulate acc ((rows, last_row) : block) =
+    let accumulate acc ((rows, last_row, _) : block) =
       let acc =
         List.fold_left
           (fun acc -> function
@@ -689,7 +686,7 @@ module Bag_stat_folder = struct
       should_cumulate_value;
     }
 
-  let accumulate acc ((_, last_row) : block) =
+  let accumulate acc ((_, last_row, _) : block) =
     let (before, after) =
       match (last_row : last_row) with
       | `Commit {before; after; _} -> (before, after)
@@ -774,7 +771,7 @@ module Once_per_commit_folder = struct
       should_cumulate_value;
     }
 
-  let accumulate acc ((_, last_row) : block) =
+  let accumulate acc ((_, last_row, _) : block) =
     let v =
       match last_row with
       | `Commit (pl : Def.Commit_op.payload) -> acc.value_of_commit (Some pl)
@@ -836,7 +833,7 @@ let elapsed_wall_over_blocks_folder header block_count =
   let len1 = Conf.curves_sample_count in
   let v0 = header.initial_stats.timestamp_wall in
   let acc0 = Utils.Resample.create_acc `Interpolate ~len0 ~len1 ~v00:v0 in
-  let accumulate acc ((_, last_row) : block) =
+  let accumulate acc ((_, last_row, _) : block) =
     let after =
       match (last_row : last_row) with
       | `Commit pl -> pl.after
@@ -857,7 +854,7 @@ let elapsed_cpu_over_blocks_folder header block_count =
   let len1 = Conf.curves_sample_count in
   let v0 = header.initial_stats.timestamp_cpu in
   let acc0 = Utils.Resample.create_acc `Interpolate ~len0 ~len1 ~v00:v0 in
-  let accumulate acc ((_, last_row) : block) =
+  let accumulate acc ((_, last_row, _) : block) =
     let after =
       match (last_row : last_row) with
       | `Commit pl -> pl.after
@@ -873,7 +870,7 @@ let elapsed_cpu_over_blocks_folder header block_count =
 (** Build a list of all the merge durations. *)
 let merge_durations_folder =
   let acc0 = [] in
-  let accumulate l ((_, last_row) : block) =
+  let accumulate l ((_, last_row, _) : block) =
     let (before, after) =
       match (last_row : last_row) with
       | `Commit {before; after; _} -> (before, after)
@@ -900,7 +897,7 @@ let level_over_blocks_folder header block_count =
     | `Replay {initial_block_level = None; _} -> 0.
   in
   let acc0 = Utils.Resample.create_acc `Interpolate ~len0 ~len1 ~v00:v0 in
-  let accumulate acc ((initial_rows, last_row) : block) =
+  let accumulate acc ((initial_rows, last_row, _) : block) =
     let level =
       match (last_row : last_row) with
       | `Commit pl -> (
@@ -929,7 +926,7 @@ let cpu_usage_folder header block_count =
       header.Def.initial_stats.timestamp_cpu,
       vs )
   in
-  let accumulate (prev_wall, prev_cpu, vs) ((_, last_row) : block) =
+  let accumulate (prev_wall, prev_cpu, vs) ((_, last_row, _) : block) =
     let after =
       match (last_row : last_row) with
       | `Commit pl -> pl.after
@@ -948,7 +945,7 @@ let cpu_usage_folder header block_count =
 let misc_stats_folder header =
   let open Def in
   let acc0 = (0., 0., 0) in
-  let accumulate (_, _, count) ((rows, last_row) : block) =
+  let accumulate (_, _, count) ((rows, last_row, _) : block) =
     let count =
       List.fold_left
         (fun count _ ->
@@ -1312,9 +1309,22 @@ let summarise' header block_count (block_seq : block Seq.t) =
       Trace_common.Parallel_folders.finalise
   in
 
+  let gcs_folder =
+    let acc0 = [] in
+    let accumulate acc ((_, _, gc_stats_opt) : block) =
+      match gc_stats_opt with
+      | None -> acc
+      | Some s -> s :: acc
+    in
+    Trace_common.Parallel_folders.folder
+      acc0
+      accumulate
+      List.rev
+  in
+
   let construct (elapsed_wall, elapsed_cpu, op_count) elapsed_wall_over_blocks
       elapsed_cpu_over_blocks span cpu_usage_variable pack tree index gc disk
-      rusage block_specs store =
+      rusage block_specs store gcs =
     {
       summary_hostname = Unix.gethostname ();
       summary_timeofday = Unix.gettimeofday ();
@@ -1325,10 +1335,6 @@ let summarise' header block_count (block_seq : block Seq.t) =
       curves_sample_count = Conf.curves_sample_count;
       moving_average_half_life_ratio = Conf.moving_average_half_life_ratio;
       header;
-      (* config = header.config; *)
-      (* hostname = header.hostname; *)
-      (* word_size = header.word_size; *)
-      (* timeofday = header.timeofday; *)
       timestamp_wall0 = header.initial_stats.timestamp_wall;
       timestamp_cpu0 = header.initial_stats.timestamp_cpu;
       elapsed_wall_over_blocks;
@@ -1343,6 +1349,7 @@ let summarise' header block_count (block_seq : block Seq.t) =
       rusage;
       block_specs;
       store;
+      gcs;
     }
   in
 
@@ -1354,20 +1361,23 @@ let summarise' header block_count (block_seq : block Seq.t) =
     |+ Span_folder.create header.initial_stats.timestamp_wall block_count
     |+ cpu_usage_folder header block_count
     |+ pack_folder |+ tree_folder |+ index_folder |+ gc_folder |+ disk_folder
-    |+ rusage_folder |+ block_specs_folder |+ store_folder |> seal
+    |+ rusage_folder |+ block_specs_folder |+ store_folder |+ gcs_folder |> seal
   in
   Seq.fold_left Trace_common.Parallel_folders.accumulate pf0 block_seq
   |> Trace_common.Parallel_folders.finalise
 
-let block_seq_when_node_run ~ends_with_close ~block_count row_seq =
+(** Groups the trace's rows into blocks. *)
+let block_seq_when_node_run ~ends_with_close ~block_count row_seq : block Seq.t =
   let commit_count = ref 0 in
-  let rec aux l (row_seq : _ Seq.t) =
+  let rec aux l ~gc_stats (row_seq : _ Seq.t) =
     let saw_all_commits = !commit_count = block_count in
     match (ends_with_close, saw_all_commits) with
     | (true, true) -> (
         match row_seq () with
+        | Seq.Cons ((`Gc_finalised stats), rest) ->
+          aux l ~gc_stats:(Some stats) rest
         | Seq.Cons ((`Close _ as op), _) ->
-            Seq.Cons ((List.rev l, op), Seq.empty)
+            Seq.Cons ((List.rev l, op, gc_stats), Seq.empty)
         | _ -> assert false)
     | (false, true) -> Seq.Nil
     | ((true | false), false) -> (
@@ -1379,17 +1389,19 @@ let block_seq_when_node_run ~ends_with_close ~block_count row_seq =
             | `Close _ -> assert false
             | `Commit _ as op ->
                 incr commit_count ;
-                Seq.Cons ((List.rev l, op), fun () -> aux [] rest)
-            | `Frequent_op _ as op -> aux (op :: l) rest
-            | `Gc_finalised _ -> aux l rest (* TODO *) ))
+                Seq.Cons ((List.rev l, op, gc_stats), fun () -> aux [] ~gc_stats:None rest)
+            | `Frequent_op _ as op -> aux (op :: l) ~gc_stats rest
+            | `Gc_finalised stats -> aux l ~gc_stats:(Some stats) rest))
   in
-  fun () -> aux [] row_seq
+  fun () -> aux [] ~gc_stats:None row_seq
 
-let block_seq_when_snapshot_export row_seq =
+(** Groups the trace's rows into blocks, when this trace corresponds to a
+    snapshot export *)
+let block_seq_when_snapshot_export row_seq : block Seq.t =
   let rec aux row_seq =
     match row_seq () with
     | Seq.Nil -> Fmt.failwith "could not find Dump_context"
-    | Seq.Cons ((`Dump_context _ as row), _) -> Seq.Cons (([], row), Seq.empty)
+    | Seq.Cons ((`Dump_context _ as row), _) -> Seq.Cons (([], row, None), Seq.empty)
     | Seq.Cons (_, rest) -> aux rest
   in
   fun () -> aux row_seq
