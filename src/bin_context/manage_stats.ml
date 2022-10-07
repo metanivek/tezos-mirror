@@ -50,8 +50,6 @@ let pp name_per_path paths cols_opt =
     | Some v -> v
     | None -> if List.length summaries > 1 then 4 else 5
   in
-  (* ignore (col_count, name_per_path); *)
-  (* assert false *)
   Fmt.pr "%a\n" (Trace_stats_summary_pp.pp col_count) (name_per_path, summaries)
 
 let pp paths named_paths cols_opt =
@@ -62,6 +60,19 @@ let pp paths named_paths cols_opt =
   if List.length paths = 0 then
     invalid_arg "manage_stats.exe pp: At least one path should be provided" ;
   pp name_per_path paths cols_opt
+
+let pp_gcs name_per_path paths =
+  let summaries = List.map summary_of_path paths in
+  Fmt.pr "%a\n" (Trace_stats_summary_pp_gcs.pp_gcs) (name_per_path, summaries)
+
+let pp_gcs paths named_paths =
+  let (name_per_path, paths) =
+    List.mapi (fun i v -> (string_of_int i, v)) paths @ named_paths
+    |> List.split
+  in
+  if List.length paths = 0 then
+    invalid_arg "manage_stats.exe pp: At least one path should be provided" ;
+  pp_gcs name_per_path paths
 
 open Cmdliner
 
@@ -78,27 +89,27 @@ let term_summarise =
   in
   Term.(const summarise $ stats_trace_file)
 
+let arg_indexed_files =
+  let open Arg in
+  let a = pos_all non_dir_file [] (info [] ~docv:"FILE") in
+  value a
+
+let arg_named_files =
+  let open Arg in
+  let a =
+    opt_all
+      (pair string non_dir_file)
+      []
+      (info
+         ["f"; "named-file"]
+         ~doc:
+           "A comma-separated pair of short name / path to trace or summary. \
+            The short name is used to tag the rows inside the pretty printed \
+            table.")
+  in
+  value a
+
 let term_pp =
-  let arg_indexed_files =
-    let open Arg in
-    let a = pos_all non_dir_file [] (info [] ~docv:"FILE") in
-    value a
-  in
-  let arg_named_files =
-    let open Arg in
-    let a =
-      opt_all
-        (pair string non_dir_file)
-        []
-        (info
-           ["f"; "named-file"]
-           ~doc:
-             "A comma-separated pair of short name / path to trace or summary. \
-              The short name is used to tag the rows inside the pretty printed \
-              table.")
-    in
-    value a
-  in
   let arg_columns =
     let open Arg in
     let doc =
@@ -108,6 +119,9 @@ let term_pp =
     value a
   in
   Term.(const pp $ arg_indexed_files $ arg_named_files $ arg_columns)
+
+let term_pp_gcs =
+  Term.(const pp_gcs $ arg_indexed_files $ arg_named_files)
 
 let () =
   let man = [] in
@@ -146,7 +160,25 @@ let () =
     ]
   in
   let k = deprecated_info ~man ~doc:"Comparative Pretty Printing" "pp" in
+
+  let man =
+    [
+      `P "Pretty print GCs in summaries (json).";
+      `P
+        "When a single file is provided, the stats for its GCs are shown.";
+      `P
+        "When multiple files are provided, the stats for their GCs are shown in a way that makes comparisons between files easy.";
+      `S "EXAMPLES";
+      `P "manage_stats.exe pp-gcs run0.json";
+      `Noblank;
+      `P "manage_stats.exe pp-gcs run0.json run2.json run3.json";
+      `Noblank;
+      `P "manage_stats.exe pp-gcs -f r0,run0.json -f r1,run1.json";
+    ]
+  in
+  let l = deprecated_info ~man ~doc:"Comparative Pretty Printing of GCs" "pp-gcs" in
+
   deprecated_exit
   @@ deprecated_eval_choice
        (term_summarise, i)
-       [(term_summarise, j); (term_pp, k)]
+       [(term_summarise, j); (term_pp, k); (term_pp_gcs, l)]
