@@ -353,7 +353,25 @@ module V0 = struct
   [@@deriving repr]
 end
 
-module Latest = V0
+(** Stats trace V1 adds the [`Gc_finalised] row. *)
+module V1 = struct
+  include V0
+
+  let version = 1
+
+  type gc_stats = unit
+  [@@deriving repr]
+
+  type row =
+    [ `Frequent_op of Frequent_op.tag * Frequent_op.payload
+    | `Commit of Commit_op.payload
+    | `Close of Stats_op.payload
+    | `Dump_context of Stats_op.payload
+    | `Gc_finalised of gc_stats ]
+  [@@deriving repr]
+end
+
+module Latest = V1
 include Latest
 
 let watched_nodes : watched_node list =
@@ -386,6 +404,12 @@ include Trace_auto_file_format.Make (struct
         Trace_auto_file_format.create_version_converter
           ~header_t:V0.header_t
           ~row_t:V0.row_t
+          ~upgrade_header:Fun.id
+          ~upgrade_row:(fun row -> (row : V0.row :> V1.row))
+    | 1 ->
+        Trace_auto_file_format.create_version_converter
+          ~header_t:V1.header_t
+          ~row_t:V1.row_t
           ~upgrade_header:Fun.id
           ~upgrade_row:Fun.id
     | i -> Fmt.invalid_arg "Unknown Stats_trace version %d" i

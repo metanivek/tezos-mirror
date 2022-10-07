@@ -1380,7 +1380,8 @@ let block_seq_when_node_run ~ends_with_close ~block_count row_seq =
             | `Commit _ as op ->
                 incr commit_count ;
                 Seq.Cons ((List.rev l, op), fun () -> aux [] rest)
-            | `Frequent_op _ as op -> aux (op :: l) rest))
+            | `Frequent_op _ as op -> aux (op :: l) rest
+            | `Gc_finalised _ -> aux l rest (* TODO *) ))
   in
   fun () -> aux [] row_seq
 

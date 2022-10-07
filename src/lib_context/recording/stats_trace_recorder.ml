@@ -404,6 +404,8 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
     in
 
     Def.append_row t.writer op
+
+  let add_gc_row t stats = Def.append_row t.writer (`Gc_finalised stats)
 end
 
 module Make
@@ -457,6 +459,16 @@ struct
     match !writer with
     | None -> raise Misc.Stats_trace_without_init
     | Some w -> w
+
+  let report_gc stats =
+    (* TODO *)
+    ignore stats;
+    Fmt.epr "\n%!";
+    Fmt.epr "Recorder.report_gc:\n%!";
+    Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats;
+    Fmt.epr "\n%!";
+    let stats = () in
+    Writer.add_gc_row (get_writer ()) stats
 
   let () =
     Stdlib.at_exit (fun () ->

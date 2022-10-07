@@ -175,6 +175,7 @@ struct
     mutable current_row : Def.row;
     mutable current_event_idx : int;
     mutable recursion_depth : int;
+    mutable latest_gc : Irmin_pack_unix.Stats.Latest_gc.stats option;
   }
 
   type cold_replay_state = {config : config; block_count : int}
@@ -626,6 +627,20 @@ struct
   let gc_every = 20
   let gc_distance_in_the_past = 20
 
+  let monitor_latest_gc (rs : warm_replay_state) =
+    let open Irmin_pack_unix.Stats in
+    let latest_gc = (get ()).latest_gc |> Latest_gc.export in
+    match rs.latest_gc, latest_gc with
+    | Some _, None -> assert false
+    | None, None -> ()
+    | None, Some s ->
+        rs.latest_gc <- Some s ;
+        Stat_recorder.report_gc s
+    | Some old, Some s when old.generation <> s.generation ->
+        rs.latest_gc <- Some s ;
+        Stat_recorder.report_gc s
+    | Some _, Some _ -> ()
+
   let exec_commit rs ((time, message, c), hash) =
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
     let time = Time.Protocol.of_seconds time in
@@ -646,8 +661,16 @@ struct
       ) else
         Lwt.return_unit
     in
-
     on_rhs_hash rs hash hash' ;
+    monitor_latest_gc rs;
+
+    (* if rs.current_row.level > 1917735 then begin
+     *
+     * end; *)
+
+
+
+
     Lwt.return_unit
 
   let rec exec_init (rs : cold_replay_state) (row : Def.row) (readonly, ()) =
@@ -669,6 +692,7 @@ struct
         ?patch_context
         store_dir
     in
+    let latest_gc = Irmin_pack_unix.Stats.((get ()).latest_gc |> Latest_gc.export) in
     let rs =
       {
         index;
@@ -682,6 +706,7 @@ struct
         current_row = row;
         current_event_idx = 0;
         recursion_depth = 0;
+        latest_gc;
       }
     in
     rsref := Some rs ;
@@ -788,54 +813,41 @@ struct
     | `Cold rs ->
         Logs.info (fun l ->
             l
-              "exec block idx:%#6d, level:%#d, events:%#7d, tzops:%3d (tx:%3d \
-               + misc:%2d) tzcontracts:%3d, gas:%#7d, storage:%#d, \
-               cycle_snapshot:%3d, time:%#d, solvetime:%#d"
+              "exec block idx:%#6d, level:%#d, events:%#7d"
               block_idx
               row.Def.level
-              (Array.length row.Def.ops)
-              row.Def.tzop_count
-              row.Def.tzop_count_tx
-              (row.Def.tzop_count - row.Def.tzop_count_tx)
-              row.Def.tzop_count_contract
-              row.Def.tz_gas_used
-              row.Def.tz_storage_size
-              row.Def.tz_cycle_snapshot
-              row.Def.tz_time
-              row.Def.tz_solvetime) ;
+              (Array.length row.Def.ops)) ;
         let* t = exec_very_first_event rs in
         let* () = exec_next_events t in
         Lwt.return (`Warm t)
     | `Warm (rs : warm_replay_state) ->
+      let unusual_transition =
+          List.length rs.trees > 0
+          || List.length rs.contexts > 0
+          || List.length rs.hash_corresps <> 1
+      in
         if
           block_idx mod 250 = 0
           || block_idx + 1 = rs.block_count
           || Array.length row.Def.ops > 35_000
-          || List.length rs.trees > 0
-          || List.length rs.contexts > 0
-          || List.length rs.hash_corresps <> 1
+          || unusual_transition
         then
           Logs.info (fun l ->
+              let s =
+                if unusual_transition then
+                  Printf.sprintf "tree/context/hash caches:%d/%d/%d"
+                    (List.length rs.trees)
+                    (List.length rs.contexts)
+                    (List.length rs.hash_corresps)
+                else ""
+              in
               l
-                "exec block idx:%#6d, level:%#d, events:%#7d, tzops:%3d \
-                 (tx:%3d + misc:%2d) tzcontracts:%3d, gas:%#7d, storage:%#d, \
-                 cycle_snapshot:%3d, time:%#d, solvetime:%#d. \
-                 tree/context/hash caches:%d/%d/%d."
+                "exec block idx:%#6d, level:%#d, events:%#7d %s"
                 block_idx
                 row.Def.level
                 (Array.length row.Def.ops)
-                row.Def.tzop_count
-                row.Def.tzop_count_tx
-                (row.Def.tzop_count - row.Def.tzop_count_tx)
-                row.Def.tzop_count_contract
-                row.Def.tz_gas_used
-                row.Def.tz_storage_size
-                row.Def.tz_cycle_snapshot
-                row.Def.tz_time
-                row.Def.tz_solvetime
-                (List.length rs.trees)
-                (List.length rs.contexts)
-                (List.length rs.hash_corresps)) ;
+                s
+                ) ;
         rs.current_block_idx <- block_idx ;
         rs.current_row <- row ;
         rs.current_event_idx <- -1 ;
