@@ -46,6 +46,44 @@ module Pb = struct
         PrintBox.text " | " :: interleave (PrintBox.text " | ") l)
 end
 
+(*
+Plan if one GC:
+- Amount of newies dealt by the finalise
+- Amount of newies dealt by the worker (sum of iterations [1:])
+- Size of all files (suffix requires a hack)
+- The 4 initial ints
+- Objects traversed
+- Suffix transfers
+- t.steps:
+  - All atom spans + total + finalise
+  - span-name | d-wall | share-wall | d-user | share-user | d-sys | share-sys
+- t.worker.steps durations:
+  - All atom spans + total
+  - span-name | d-wall | share-wall | d-user | share-user | d-sys | share-sys
+- TODO: rusage
+- TODO: ocaml_gc
+- TODO: index
+- TODO: pack_store
+- TODO: inode
+- TODO: %CPU
+
+Infos about the main process
+- I might need to record in the stats trace when the gc starts
+- I might need to make a more intelligent to-summary
+- %CPU
+- Tail latency (percentile or max?)
+
+Data about the main process:
+- Number of blocks (+ per sec)
+- TZ-transactions (+ per sec)
+- TZ-operations (+ per sec)
+- Disk reads  (+ per sec)
+- Disk writes (+ per sec)
+
+TODO: To the toposort for step names
+
+*)
+
 let pp_gcs ppf (summary_names, summaries) =
   ignore (summary_names, summaries);
   Format.fprintf ppf "DELICIEUX"
