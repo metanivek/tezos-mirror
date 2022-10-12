@@ -261,7 +261,10 @@ Pour prefix et mapping tu peux mettre Int63.zero si y'en a pas.
 Pour le suffix faut faire gaffe a pas compter les newies, du coup je sais pas trop ce qui est le plus simple.
 
 
-
+TODO:
+- maybe implement: append_list_left / append_list_top for [insert_dim_headers]
+- blank redundant header cells
+- implement percents at the `ff` stage, implement [Pb.interleave_matrices]
 
 
 *)
@@ -370,19 +373,22 @@ module Point = struct
                         col_values
                     in
                     match sf with
-                    | [] -> Pb.text "n/a" |> Pb.align ~h:`Right ~v:`Top
+                    | [] -> Pb.text ""
                     | [(_key, value)] ->
                         any_hit := true ;
                         Pb.text value |> Pb.align ~h:`Right ~v:`Top
                     | _ ->
-                        (* 2 identical keys in [sf] *)
+                        (* several identical keys in [sf] *)
                         assert false)
                   cols
               in
               if !any_hit then Some cells else None)
             rows
         in
-        matrix |> Pb.insert_dim_headers ~colnames:cols ~rownames:rows
+        matrix
+        |> Pb.insert_dim_headers ~colnames:cols ~rownames:rows
+        |> Pb.matrix_with_column_spacers
+        |> Pb.grid_l ~bars:false
     end
   end
 end
@@ -416,15 +422,13 @@ let pp_gcs ppf (summary_names, summaries) =
 
   let s =
     Point.String.Frame.to_printbox sf ~col_axes:[2] ~row_axes:[1; 0]
-    |> Pb.matrix_with_column_spacers
-    |> Pb.grid_l ~bars:false |> PrintBox_text.to_string
+    |> PrintBox_text.to_string
   in
   Fmt.pf ppf "%s\n" s;
 
   let s =
     Point.String.Frame.to_printbox sf ~col_axes:[2; 0] ~row_axes:[1]
-    |> Pb.matrix_with_column_spacers
-    |> Pb.grid_l ~bars:false |> PrintBox_text.to_string
+    |> PrintBox_text.to_string
   in
   Fmt.pf ppf "%s" s;
 
