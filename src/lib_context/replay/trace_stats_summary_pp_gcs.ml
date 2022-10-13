@@ -27,6 +27,7 @@ open Trace_stats_summary
 module Utils = Trace_stats_summary_utils
 module Hashtbl = Stdlib.Hashtbl
 module List = Stdlib.List
+module Int63 = Optint.Int63
 
 module Pb = struct
   include PrintBox
@@ -150,6 +151,87 @@ module Pb = struct
     match m with [] -> [] | hd :: tl -> aux None hd :: tl
 end
 
+let reduce f l =
+  match l with [] -> assert false | hd :: tl -> List.fold_left f hd tl
+
+let add_rusage (x : Def.Gc.rusage) (y : Def.Gc.rusage) =
+  let ( + ) = Int64.add in
+  Def.Gc.
+    {
+      maxrss = x.maxrss + y.maxrss;
+      minflt = x.minflt + y.minflt;
+      majflt = x.majflt + y.majflt;
+      inblock = x.inblock + y.inblock;
+      oublock = x.oublock + y.oublock;
+      nvcsw = x.nvcsw + y.nvcsw;
+      nivcsw = x.nivcsw + y.nivcsw;
+    }
+
+let sum_rusage = reduce add_rusage
+
+let add_duration (x : Def.Gc.duration) (y : Def.Gc.duration) =
+  Def.Gc.
+    {wall = x.wall +. y.wall; sys = x.sys +. y.sys; user = x.user +. y.user}
+
+let sum_duration = reduce add_duration
+
+let add_index (x : Def.Gc.index) (y : Def.Gc.index) =
+  Def.Gc.
+    {
+      bytes_read = x.bytes_read + y.bytes_read;
+      nb_reads = x.nb_reads + y.nb_reads;
+      bytes_written = x.bytes_written + y.bytes_written;
+      nb_writes = x.nb_writes + y.nb_writes;
+    }
+
+let sum_index = reduce add_index
+
+let add_pack_store (x : Def.Gc.pack_store) (y : Def.Gc.pack_store) =
+  Def.Gc.
+    {
+      appended_hashes = x.appended_hashes + y.appended_hashes;
+      appended_offsets = x.appended_offsets + y.appended_offsets;
+      total = x.total + y.total;
+      from_staging = x.from_staging + y.from_staging;
+      from_lru = x.from_lru + y.from_lru;
+      from_pack_direct = x.from_pack_direct + y.from_pack_direct;
+      from_pack_indexed = x.from_pack_indexed + y.from_pack_indexed;
+    }
+
+let sum_pack_store = reduce add_pack_store
+
+let add_inode (x : Def.Gc.inode) (y : Def.Gc.inode) =
+  Def.Gc.
+    {
+      inode_add = x.inode_add + y.inode_add;
+      inode_remove = x.inode_remove + y.inode_remove;
+      inode_of_seq = x.inode_of_seq + y.inode_of_seq;
+      inode_of_raw = x.inode_of_raw + y.inode_of_raw;
+      inode_rec_add = x.inode_rec_add + y.inode_rec_add;
+      inode_rec_remove = x.inode_rec_remove + y.inode_rec_remove;
+      inode_to_binv = x.inode_to_binv + y.inode_to_binv;
+      inode_decode_bin = x.inode_decode_bin + y.inode_decode_bin;
+      inode_encode_bin = x.inode_encode_bin + y.inode_encode_bin;
+    }
+
+let sum_inode = reduce add_inode
+
+let add_ocaml_gc (x : Def.ocaml_gc) (y : Def.ocaml_gc) =
+  Def.
+    {
+      minor_words = x.minor_words +. y.minor_words;
+      promoted_words = x.promoted_words +. y.promoted_words;
+      major_words = x.major_words +. y.major_words;
+      minor_collections = x.minor_collections + y.minor_collections;
+      major_collections = x.major_collections + y.major_collections;
+      heap_words = x.heap_words + y.heap_words;
+      compactions = x.compactions + y.compactions;
+      top_heap_words = x.top_heap_words + y.top_heap_words;
+      stack_size = x.stack_size + y.stack_size;
+    }
+
+let sum_ocaml_gc = reduce add_ocaml_gc
+
 (*
 
 | -- Config / Setup --
@@ -232,9 +314,9 @@ end
 |                    total duration (wall) |
 |                    total duration (user) |
 |                     total duration (sys) |
-|                                    %user |
-|                                     %sys |
 |                                     %cpu |
+|                                     %sys |
+|                                    %user |
 |                        objects traversed |
 |                    suffix transfer loops |
 |                                          |
@@ -513,36 +595,33 @@ module Table1 = struct
       f (List.hd s.gcs)
     in
     let+ (gc : Def.Gc.t) = () in
-    let sum_timing get steps =
-      List.fold_left (fun acc (_, v) -> acc +. get v) 0. steps
+    let total_duration =
+      List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
+      |> sum_duration
     in
-    let total_wall = sum_timing (fun d -> d.Def.Gc.wall) gc.steps in
-    let total_sys = sum_timing (fun d -> d.Def.Gc.sys) gc.steps in
-    let total_user = sum_timing (fun d -> d.Def.Gc.user) gc.steps in
-    let finalise_steps =
-      List.filter (fun (stepname, _) -> is_step_finalise stepname) gc.steps
+    let finalise_duration =
+      gc.steps
+      |> List.filter (fun (stepname, _) -> is_step_finalise stepname)
+      |> List.map snd |> sum_duration
     in
-    let finalise_wall = sum_timing (fun d -> d.Def.Gc.wall) finalise_steps in
-    let finalise_sys = sum_timing (fun d -> d.Def.Gc.sys) finalise_steps in
-    let finalise_user = sum_timing (fun d -> d.Def.Gc.user) finalise_steps in
-    let ff_of_timings stepname wall sys user =
+    let ff_of_timings stepname (d : Def.Gc.duration) =
       [
-        ([|sname; stepname; "wall"|], wall);
-        ([|sname; stepname; "share"|], wall /. total_wall);
-        ([|sname; stepname; "sys"|], sys);
-        ([|sname; stepname; "user"|], user);
-        ([|sname; stepname; "%cpu"|], (sys +. user) /. wall);
-        ([|sname; stepname; "%sys"|], sys /. wall);
-        ([|sname; stepname; "%user"|], user /. wall);
+        ([|sname; stepname; "wall"|], d.wall);
+        ([|sname; stepname; "share"|], d.wall /. total_duration.wall);
+        ([|sname; stepname; "sys"|], d.sys);
+        ([|sname; stepname; "user"|], d.user);
+        ([|sname; stepname; "%cpu"|], (d.sys +. d.user) /. d.wall);
+        ([|sname; stepname; "%sys"|], d.sys /. d.wall);
+        ([|sname; stepname; "%user"|], d.user /. d.wall);
       ]
     in
     let ff_steps =
       let ( let+ ) () f = List.map f gc.steps |> List.flatten in
-      let+ stepname, (d : Def.Gc.duration) = () in
-      ff_of_timings stepname d.wall d.sys d.user
+      let+ stepname, d = () in
+      ff_of_timings stepname d
     in
-    ff_of_timings "total" total_wall total_sys total_user
-    @ ff_of_timings "finalise" finalise_wall finalise_sys finalise_user
+    ff_of_timings "total" total_duration
+    @ ff_of_timings "finalise" finalise_duration
     @ ff_steps
 
   let truc ppf (summary_names, summaries) =
@@ -593,30 +672,28 @@ module Table2 = struct
       f (List.hd s.gcs)
     in
     let+ (gc : Def.Gc.t) = () in
-    let sum_timing get steps =
-      List.fold_left (fun acc (_, v) -> acc +. get v) 0. steps
+
+    let total_duration =
+      List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
+      |> sum_duration
     in
-    let total_wall = sum_timing (fun d -> d.Def.Gc.duration.wall) gc.worker.steps in
-    let total_sys = sum_timing (fun d -> d.Def.Gc.duration.sys) gc.worker.steps in
-    let total_user = sum_timing (fun d -> d.Def.Gc.duration.user) gc.worker.steps in
-    let ff_of_timings stepname wall sys user =
+    let ff_of_timings stepname (d : Def.Gc.duration) =
       [
-        ([|sname; stepname; "wall"|], wall);
-        ([|sname; stepname; "share"|], wall /. total_wall);
-        ([|sname; stepname; "sys"|], sys);
-        ([|sname; stepname; "user"|], user);
-        ([|sname; stepname; "%cpu"|], (sys +. user) /. wall);
-        ([|sname; stepname; "%sys"|], sys /. wall);
-        ([|sname; stepname; "%user"|], user /. wall);
+        ([|sname; stepname; "wall"|], d.wall);
+        ([|sname; stepname; "share"|], d.wall /. total_duration.wall);
+        ([|sname; stepname; "sys"|], d.sys);
+        ([|sname; stepname; "user"|], d.user);
+        ([|sname; stepname; "%cpu"|], (d.sys +. d.user) /. d.wall);
+        ([|sname; stepname; "%sys"|], d.sys /. d.wall);
+        ([|sname; stepname; "%user"|], d.user /. d.wall);
       ]
     in
     let ff_steps =
       let ( let+ ) () f = List.map f gc.worker.steps |> List.flatten in
       let+ stepname, (d : Def.Gc.step) = () in
-      ff_of_timings stepname d.duration.wall d.duration.sys d.duration.user
+      ff_of_timings stepname d.duration
     in
-    ff_of_timings "total" total_wall total_sys total_user
-    @ ff_steps
+    ff_of_timings "total" total_duration @ ff_steps
 
   let truc ppf (summary_names, summaries) =
     let ff = truc (summary_names, summaries) in
@@ -640,8 +717,7 @@ module Table2 = struct
     let sf = Point.String.Frame.concat x y in
     let s =
       let should_put_space_before_row = function
-        | "open files" :: sname :: __ when sname = List.hd summary_names ->
-            true
+        | "open files" :: sname :: __ when sname = List.hd summary_names -> true
         | _ -> false
       in
       Point.String.Frame.to_printbox
@@ -654,10 +730,154 @@ module Table2 = struct
     Fmt.pf ppf "%s" s
 end
 
+module Table3 = struct
+  let truc (summary_names, summaries) : Point.Float.Frame.t =
+    let ( let+ ) () f =
+      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
+    in
+    let+ sname, s = () in
+
+    let ( let+ ) () f =
+      (* TODO: Average GCs *)
+      f (List.hd s.gcs)
+    in
+    let+ (gc : Def.Gc.t) = () in
+    let w : Def.Gc.worker = gc.worker in
+    let _, (last_worker_step : Def.Gc.step) = List.rev w.steps |> List.hd in
+    let rusage =
+      List.map (fun (_, (step : Def.Gc.step)) -> step.rusage) w.steps
+      |> sum_rusage
+    in
+    let total_duration =
+      List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
+      |> sum_duration
+    in
+    let index =
+      List.map (fun (_, (step : Def.Gc.step)) -> step.index) w.steps
+      |> sum_index
+    in
+    let pack_store =
+      List.map (fun (_, (step : Def.Gc.step)) -> step.pack_store) w.steps
+      |> sum_pack_store
+    in
+    let inode =
+      List.map (fun (_, (step : Def.Gc.step)) -> step.inode) w.steps
+      |> sum_inode
+    in
+    let ocaml_gc =
+      List.map (fun (_, (step : Def.Gc.step)) -> step.ocaml_gc) w.steps
+      |> sum_ocaml_gc
+    in
+    let i = float_of_int in
+    [
+      ([|sname; "total duration (wall)"|], total_duration.wall);
+      ([|sname; "total duration (sys)"|], total_duration.sys);
+      ([|sname; "total duration (user)"|], total_duration.user);
+      ( [|sname; "%cpu"|],
+        (total_duration.sys +. total_duration.user) /. total_duration.wall );
+      ([|sname; "%sys"|], total_duration.sys /. total_duration.wall);
+      ([|sname; "%user"|], total_duration.user /. total_duration.wall);
+      ([|sname; "objects traversed"|], w.objects_traversed |> Int63.to_float);
+      ([|sname; "suffix transert loops"|], List.length w.suffix_transfers |> i);
+      (* rusage *)
+      ( [|sname; "initial maxrss (bytes)"|],
+        w.initial_maxrss |> Int64.to_float |> ( *. ) 1000. );
+      ( [|sname; "final maxrss (bytes)"|],
+        last_worker_step.rusage.maxrss |> Int64.to_float |> ( *. ) 1000. );
+      ([|sname; "minflt"|], rusage.minflt |> Int64.to_float);
+      ([|sname; "majflt"|], rusage.majflt |> Int64.to_float);
+      ([|sname; "inblock"|], rusage.inblock |> Int64.to_float);
+      ([|sname; "oublock"|], rusage.oublock |> Int64.to_float);
+      ([|sname; "nvcsw"|], rusage.nvcsw |> Int64.to_float);
+      ([|sname; "nivcsw"|], rusage.nivcsw |> Int64.to_float);
+      (* disk *)
+      ([|sname; "disk reads"|], index.nb_reads |> i);
+      ([|sname; "disk bytes read"|], index.bytes_read |> i);
+      ([|sname; "disk writes"|], index.nb_writes |> i);
+      ([|sname; "disk bytes written"|], index.bytes_written |> i);
+      (* pack_store *)
+      ([|sname; "appended_hashes"|], pack_store.appended_hashes |> i);
+      ([|sname; "appended_offsets"|], pack_store.appended_offsets |> i);
+      ([|sname; "total"|], pack_store.total |> i);
+      ([|sname; "from_staging"|], pack_store.from_staging |> i);
+      ([|sname; "from_lru"|], pack_store.from_lru |> i);
+      ([|sname; "from_pack_direct"|], pack_store.from_pack_direct |> i);
+      ([|sname; "from_pack_indexed"|], pack_store.from_pack_indexed |> i);
+      (* inode *)
+      ([|sname; "inode_add"|], inode.inode_add |> i);
+      ([|sname; "inode_remove"|], inode.inode_remove |> i);
+      ([|sname; "inode_of_seq"|], inode.inode_of_seq |> i);
+      ([|sname; "inode_of_raw"|], inode.inode_of_raw |> i);
+      ([|sname; "inode_rec_add"|], inode.inode_rec_add |> i);
+      ([|sname; "inode_rec_remove"|], inode.inode_rec_remove |> i);
+      ([|sname; "inode_to_binv"|], inode.inode_to_binv |> i);
+      ([|sname; "inode_decode_bin"|], inode.inode_decode_bin |> i);
+      ([|sname; "inode_encode_bin"|], inode.inode_encode_bin |> i);
+      (* ocaml_gc *)
+      ([|sname; "initial heap byte"|], w.initial_heap_words * 8 |> i);
+      ([|sname; "initial top heap bytes"|], w.initial_top_heap_words * 8 |> i);
+      ( [|sname; "  final top heap bytes"|],
+        last_worker_step.ocaml_gc.top_heap_words * 8 |> i );
+      ([|sname; "initial stack bytes"|], w.initial_stack_size * 8 |> i);
+      ( [|sname; "  final stack bytes"|],
+        last_worker_step.ocaml_gc.stack_size * 8 |> i );
+      ([|sname; "minor_words"|], ocaml_gc.minor_words);
+      ([|sname; "promoted_words"|], ocaml_gc.promoted_words);
+      ([|sname; "major_words"|], ocaml_gc.major_words);
+      ([|sname; "minor_collections"|], ocaml_gc.minor_collections |> i);
+      ([|sname; "major_collections"|], ocaml_gc.major_collections |> i);
+      ([|sname; "compactions"|], ocaml_gc.compactions |> i);
+    ]
+
+  let truc ppf (summary_names, summaries) =
+    let ff = truc (summary_names, summaries) in
+    let x =
+      let group_of_key k =
+        match k.(1) with
+        | "initial maxrss (bytes)" | "final maxrss (bytes)" -> ["maxrss"]
+        | _ -> [k.(1)]
+      in
+      let formatter_of_group g occurences =
+        if List.exists (fun s -> String.contains s '%') g || List.mem "share" g
+        then Utils.pp_percent
+        else if List.exists (String.starts_with ~prefix:"total duration") g then
+          Utils.create_pp_seconds occurences
+        else Utils.create_pp_real occurences
+      in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank = Array.exists (fun s -> String.contains s '%') in
+      let group_of_key k = [k.(1)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
+
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = function
+        | ( "initial maxrss (bytes)" | "initial heap byte" | "inode_add"
+          | "appended_hashes" | "disk reads" )
+          :: _ ->
+            true
+        | _ -> false
+      in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[0]
+        ~row_axes:[1]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
+
 let pp_gcs ppf (summary_names, summaries) =
   Format.fprintf
     ppf
     {|
+-- Worker stats --
+%a
+
 -- Main timings --
 %a
 
@@ -667,6 +887,8 @@ let pp_gcs ppf (summary_names, summaries) =
 
 
 |}
+    Table3.truc
+    (summary_names, summaries)
     Table1.truc
     (summary_names, summaries)
     Table2.truc
