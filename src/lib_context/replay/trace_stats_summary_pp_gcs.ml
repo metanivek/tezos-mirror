@@ -307,112 +307,12 @@ let sum_ocaml_gc = reduce add_ocaml_gc
 |      suffix newies in extra worker loops |
 |                suffix newies in finalise |
 
--- Worker stats --
-|                             summary name |      GC-run-1 |     GC-run-2 |
-|                   number of GCs averaged |             1 |            1 |
-|                                          | ------------- |------------- |
-|                    total duration (wall) |
-|                    total duration (user) |
-|                     total duration (sys) |
-|                                     %cpu |
-|                                     %sys |
-|                                    %user |
-|                        objects traversed |
-|                    suffix transfer loops |
-|                                          |
-|                   initial maxrss (bytes) |
-|                     final maxrss (bytes) |
-|                                   minflt |
-|                                   majflt |
-|                                  inblock |
-|                                  oublock |
-|                                    nvcsw |
-|                                   nivcsw |
-|                                          |
-|                               disk reads |
-|                          disk bytes read |
-|                              disk writes |
-|                       disk bytes written |
-|                                          |
-|                          appended_hashes |
-|                         appended_offsets |
-|                                    total |
-|                             from_staging |
-|                                 from_lru |
-|                         from_pack_direct |
-|                        from_pack_indexed |
-|                                          |
-|                                inode_add |
-|                             inode_remove |
-|                             inode_of_seq |
-|                             inode_of_raw |
-|                            inode_rec_add |
-|                         inode_rec_remove |
-|                            inode_to_binv |
-|                         inode_decode_bin |
-|                         inode_encode_bin |
-|                                          |
-|                        initial heap byte |
-|                   initial top heap bytes |
-|                     final top heap bytes |
-|                      initial stack bytes |
-|                        final stack bytes |
-|                              minor_words |
-|                           promoted_words |
-|                              major_words |
-|                        minor_collections |
-|                        major_collections |
-|                              compactions |
-
--- Main timings per step --
-|                   | elapsed wall | elapsed user | elapsed sys |
-|   step0 |  run 0  |
-|   step0 |  run 1  |
-|   step1 |  run 0  |
-|   step1 |  run 1  |
-
--- Worker timings per step --
-< similar as main timings >
-
--- Worker rusage stats per step --
-|                   | minflt | majflt | inblock | oublock | nvcsw | nivcsw |
-|   step0 |  run 0  |
-|   step0 |  run 1  |
-|   step1 |  run 0  |
-|   step1 |  run 1  |
-
--- Worker disk stats per step --
-< similar as worker rusage stats >
-
--- Worker pack_store stats per step --
-< similar as worker rusage stats >
-
--- Worker inode stats per step --
-< similar as worker rusage stats >
-
--- Worker ocaml_gc stats per step --
-< similar as worker rusage stats >
-
-# durations: 6
-# rusage: 7
-# disk: 4
-# pack_store: 7
-# inode: 9
-# ocaml_gc: 8
-
-TODO: To the toposort for step names
+TODO: Merge diffs of irmin-stats for old file sizes
+TODO: Need main's stats during GC in the summary
+TODO: toposort for step names
 TODO: It must be possible to input a process that had 0 GCs...
-TODO: In the 3d plots (x:step*json, y:metric) use different color for each json. Need flag --no-color
-
-Trucs a rajouter dans les stats d'irmin:
-
-Il faut rajouter "old prefix", "old mapping" et "old suffix" and `worker.files`.
-
-Il y a la fonction `Gc_stats.Worker.add_file_size` pour rajouter, mais c'est peut etre pas le plus simple. A voir.
-
-Pour prefix et mapping tu peux mettre Int63.zero si y'en a pas.
-
-Pour le suffix faut faire gaffe a pas compter les newies, du coup je sais pas trop ce qui est le plus simple.
+TODO: Average inputs GCs
+TODO: Need config and setup
 
 *)
 
@@ -571,30 +471,26 @@ module Point = struct
   end
 end
 
-module Table1 = struct
-  let truc (summary_names, summaries) : Point.Float.Frame.t =
-    let is_step_finalise = function
-      | "worker startup" -> false
-      | "before finalise" -> false
-      | "worker wait" -> true
-      | "read output" -> true
-      | "copy latest newies" -> true
-      | "swap and purge" -> true
-      | "unlink" -> true
-      | x ->
-          Fmt.epr "Please edit code to classify: %S\n%!" x ;
-          assert false
-    in
-    let ( let+ ) () f =
-      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
-    in
-    let+ sname, s = () in
+let aggregate_gc_product summary_names summaries f =
+  let summary_product f = List.map2 f summary_names summaries |> List.flatten in
+  let gc_product f sname summary = f sname (List.hd summary.gcs) in
+  summary_product (gc_product f)
 
-    let ( let+ ) () f =
-      (* TODO: Average GCs *)
-      f (List.hd s.gcs)
-    in
-    let+ (gc : Def.Gc.t) = () in
+module Table1 = struct
+  let is_step_finalise = function
+    | "worker startup" -> false
+    | "before finalise" -> false
+    | "worker wait" -> true
+    | "read output" -> true
+    | "copy latest newies" -> true
+    | "swap and purge" -> true
+    | "unlink" -> true
+    | x ->
+        Fmt.epr "Please edit code to classify: %S\n%!" x ;
+        assert false
+
+  let build_ff summary_names summaries : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
     let total_duration =
       List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
       |> sum_duration
@@ -616,16 +512,15 @@ module Table1 = struct
       ]
     in
     let ff_steps =
-      let ( let+ ) () f = List.map f gc.steps |> List.flatten in
-      let+ stepname, d = () in
-      ff_of_timings stepname d
+      List.map (fun (stepname, d) -> ff_of_timings stepname d) gc.steps
+      |> List.flatten
     in
     ff_of_timings "total" total_duration
     @ ff_of_timings "finalise" finalise_duration
     @ ff_steps
 
-  let truc ppf (summary_names, summaries) =
-    let ff = truc (summary_names, summaries) in
+  let pp ppf (summary_names, summaries) =
+    let ff = build_ff summary_names summaries in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group g occurences =
@@ -660,18 +555,8 @@ module Table1 = struct
 end
 
 module Table2 = struct
-  let truc (summary_names, summaries) : Point.Float.Frame.t =
-    let ( let+ ) () f =
-      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
-    in
-    let+ sname, s = () in
-
-    let ( let+ ) () f =
-      (* TODO: Average GCs *)
-      f (List.hd s.gcs)
-    in
-    let+ (gc : Def.Gc.t) = () in
-
+  let build_ff summary_names summaries : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
     let total_duration =
       List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
       |> sum_duration
@@ -688,14 +573,13 @@ module Table2 = struct
       ]
     in
     let ff_steps =
-      let ( let+ ) () f = List.map f gc.worker.steps |> List.flatten in
-      let+ stepname, (d : Def.Gc.step) = () in
-      ff_of_timings stepname d.duration
+      List.map (fun (stepname, d) -> ff_of_timings stepname d) gc.steps
+      |> List.flatten
     in
     ff_of_timings "total" total_duration @ ff_steps
 
-  let truc ppf (summary_names, summaries) =
-    let ff = truc (summary_names, summaries) in
+  let pp ppf (summary_names, summaries) =
+    let ff = build_ff summary_names summaries in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group g occurences =
@@ -730,17 +614,8 @@ module Table2 = struct
 end
 
 module Table3 = struct
-  let truc (summary_names, summaries) : Point.Float.Frame.t =
-    let ( let+ ) () f =
-      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
-    in
-    let+ sname, s = () in
-
-    let ( let+ ) () f =
-      (* TODO: Average GCs *)
-      f (List.hd s.gcs)
-    in
-    let+ (gc : Def.Gc.t) = () in
+  let build_ff summary_names summaries : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
     let w : Def.Gc.worker = gc.worker in
     let _, (last_worker_step : Def.Gc.step) = List.rev w.steps |> List.hd in
     let rusage =
@@ -828,8 +703,8 @@ module Table3 = struct
       ([|sname; "compactions"|], ocaml_gc.compactions |> i);
     ]
 
-  let truc ppf (summary_names, summaries) =
-    let ff = truc (summary_names, summaries) in
+  let pp ppf (summary_names, summaries) =
+    let ff = build_ff summary_names summaries in
     let x =
       let group_of_key k =
         match k.(1) with
@@ -883,24 +758,75 @@ module Table4 = struct
       ([|sname; stepname; "nivcsw"|], r.nivcsw |> Int64.to_float);
     ]
 
-  let truc (summary_names, summaries, which) : Point.Float.Frame.t =
-    let ( let+ ) () f =
-      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
-    in
-    let+ sname, s = () in
+  let disk_ff_of_worker_step sname stepname (step : Def.Gc.step) =
+    let index = step.index in
+    let i = float_of_int in
+    [
+      ([|sname; stepname; "disk reads"|], index.nb_reads |> i);
+      ([|sname; stepname; "disk bytes read"|], index.bytes_read |> i);
+      ([|sname; stepname; "disk writes"|], index.nb_writes |> i);
+      ([|sname; stepname; "disk bytes written"|], index.bytes_written |> i);
+    ]
 
-    let ( let+ ) () f =
-      (* TODO: Average GCs *)
-      f (List.hd s.gcs)
-    in
-    let+ (gc : Def.Gc.t) = () in
+  let pack_store_ff_of_worker_step sname stepname (step : Def.Gc.step) =
+    let pack_store = step.pack_store in
+    let i = float_of_int in
+    [
+      ([|sname; stepname; "appended_hashes"|], pack_store.appended_hashes |> i);
+      ([|sname; stepname; "appended_offsets"|], pack_store.appended_offsets |> i);
+      ([|sname; stepname; "total"|], pack_store.total |> i);
+      ([|sname; stepname; "from_staging"|], pack_store.from_staging |> i);
+      ([|sname; stepname; "from_lru"|], pack_store.from_lru |> i);
+      ([|sname; stepname; "from_pack_direct"|], pack_store.from_pack_direct |> i);
+      ( [|sname; stepname; "from_pack_indexed"|],
+        pack_store.from_pack_indexed |> i );
+    ]
 
-    let ( let+ ) () f = List.map f gc.worker.steps |> List.flatten in
-    let+ stepname, step = () in
-    match which with `Rusage -> rusage_ff_of_worker_step sname stepname step
+  let inode_ff_of_worker_step sname stepname (step : Def.Gc.step) =
+    let inode = step.inode in
+    let i = float_of_int in
+    [
+      ([|sname; stepname; "add"|], inode.inode_add |> i);
+      ([|sname; stepname; "remove"|], inode.inode_remove |> i);
+      ([|sname; stepname; "of_seq"|], inode.inode_of_seq |> i);
+      ([|sname; stepname; "of_raw"|], inode.inode_of_raw |> i);
+      ([|sname; stepname; "rec_add"|], inode.inode_rec_add |> i);
+      ([|sname; stepname; "rec_remove"|], inode.inode_rec_remove |> i);
+      ([|sname; stepname; "to_binv"|], inode.inode_to_binv |> i);
+      ([|sname; stepname; "decode_bin"|], inode.inode_decode_bin |> i);
+      ([|sname; stepname; "encode_bin"|], inode.inode_encode_bin |> i);
+    ]
 
-  let truc ppf (summary_names, summaries, which) =
-    let ff = truc (summary_names, summaries, which) in
+  let ocaml_gc_ff_of_worker_step sname stepname (step : Def.Gc.step) =
+    let ocaml_gc = step.ocaml_gc in
+    let i = float_of_int in
+    [
+      ([|sname; stepname; "heap bytes"|], ocaml_gc.top_heap_words * 8 |> i);
+      ([|sname; stepname; "top heap bytes"|], ocaml_gc.top_heap_words * 8 |> i);
+      ([|sname; stepname; "stack bytes"|], ocaml_gc.stack_size * 8 |> i);
+      ([|sname; stepname; "minor_words"|], ocaml_gc.minor_words);
+      ([|sname; stepname; "promoted_words"|], ocaml_gc.promoted_words);
+      ([|sname; stepname; "major_words"|], ocaml_gc.major_words);
+      ([|sname; stepname; "minor_collections"|], ocaml_gc.minor_collections |> i);
+      ([|sname; stepname; "major_collections"|], ocaml_gc.major_collections |> i);
+      ([|sname; stepname; "compactions"|], ocaml_gc.compactions |> i);
+    ]
+
+  let build_ff summary_names summaries which : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    List.map
+      (fun (stepname, step) ->
+        match which with
+        | `Rusage -> rusage_ff_of_worker_step sname stepname step
+        | `Disk -> disk_ff_of_worker_step sname stepname step
+        | `Pack_store -> pack_store_ff_of_worker_step sname stepname step
+        | `Inode -> inode_ff_of_worker_step sname stepname step
+        | `Ocaml_gc -> ocaml_gc_ff_of_worker_step sname stepname step)
+      gc.worker.steps
+    |> List.flatten
+
+  let pp ppf (summary_names, summaries, which) =
+    let ff = build_ff summary_names summaries which in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group _g occurences = Utils.create_pp_real occurences in
@@ -940,12 +866,33 @@ let pp_gcs ppf (summary_names, summaries) =
 -- Worker runsage stats per step --
 %a
 
+-- Worker disk stats per step --
+%a
+
+-- Worker pack_store stats per step --
+%a
+
+-- Worker inode stats per step --
+%a
+
+-- Worker ocaml_gc stats per step --
+%a
+
+
 |}
-    Table3.truc
+    Table3.pp
     (summary_names, summaries)
-    Table1.truc
+    Table1.pp
     (summary_names, summaries)
-    Table2.truc
+    Table2.pp
     (summary_names, summaries)
-    Table4.truc
+    Table4.pp
     (summary_names, summaries, `Rusage)
+    Table4.pp
+    (summary_names, summaries, `Disk)
+    Table4.pp
+    (summary_names, summaries, `Pack_store)
+    Table4.pp
+    (summary_names, summaries, `Inode)
+    Table4.pp
+    (summary_names, summaries, `Ocaml_gc)
