@@ -642,7 +642,6 @@ module Table1 = struct
       let group_of_key k = [k.(1); k.(2)] in
       Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
     in
-
     let sf = Point.String.Frame.concat x y in
     let s =
       let should_put_space_before_row = function
@@ -871,6 +870,60 @@ module Table3 = struct
     Fmt.pf ppf "%s" s
 end
 
+module Table4 = struct
+  let rusage_ff_of_worker_step sname stepname (step : Def.Gc.step) =
+    let r = step.rusage in
+    [
+      ([|sname; stepname; "maxrss"|], r.maxrss |> Int64.to_float);
+      ([|sname; stepname; "minflt"|], r.minflt |> Int64.to_float);
+      ([|sname; stepname; "majflt"|], r.majflt |> Int64.to_float);
+      ([|sname; stepname; "inblock"|], r.inblock |> Int64.to_float);
+      ([|sname; stepname; "oublock"|], r.oublock |> Int64.to_float);
+      ([|sname; stepname; "nvcsw"|], r.nvcsw |> Int64.to_float);
+      ([|sname; stepname; "nivcsw"|], r.nivcsw |> Int64.to_float);
+    ]
+
+  let truc (summary_names, summaries, which) : Point.Float.Frame.t =
+    let ( let+ ) () f =
+      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
+    in
+    let+ sname, s = () in
+
+    let ( let+ ) () f =
+      (* TODO: Average GCs *)
+      f (List.hd s.gcs)
+    in
+    let+ (gc : Def.Gc.t) = () in
+
+    let ( let+ ) () f = List.map f gc.worker.steps |> List.flatten in
+    let+ stepname, step = () in
+    match which with `Rusage -> rusage_ff_of_worker_step sname stepname step
+
+  let truc ppf (summary_names, summaries, which) =
+    let ff = truc (summary_names, summaries, which) in
+    let x =
+      let group_of_key k = [k.(1); k.(2)] in
+      let formatter_of_group _g occurences = Utils.create_pp_real occurences in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank = Fun.const false in
+      let group_of_key k = [k.(1); k.(2)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = Fun.const false in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[2]
+        ~row_axes:[1; 0]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
+
 let pp_gcs ppf (summary_names, summaries) =
   Format.fprintf
     ppf
@@ -884,7 +937,8 @@ let pp_gcs ppf (summary_names, summaries) =
 -- Worker timings --
 %a
 
-
+-- Worker runsage stats per step --
+%a
 
 |}
     Table3.truc
@@ -893,3 +947,5 @@ let pp_gcs ppf (summary_names, summaries) =
     (summary_names, summaries)
     Table2.truc
     (summary_names, summaries)
+    Table4.truc
+    (summary_names, summaries, `Rusage)

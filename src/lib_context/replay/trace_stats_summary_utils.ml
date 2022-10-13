@@ -117,20 +117,23 @@ let create_pp_seconds examples =
     else finite_pp ppf v
 
 let pp_percent ppf v =
-  if not @@ Float.is_finite v then Format.fprintf ppf "%4f" v
-  else if v = 0. then Format.fprintf ppf "  0%%"
-  else if v < 1. /. 100. then
-    let s = Fmt.str "%4.2f%%" (v *. 100.) in
-    let s = String.sub s 1 (String.length s - 1) in
-    Format.fprintf ppf "%s" s
-  else if v < 10. /. 100. then Format.fprintf ppf "%3.1f%%" (v *. 100.)
-  else if v < 1000. /. 100. then Format.fprintf ppf "%3.0f%%" (v *. 100.)
-  else if v < 1000. then Format.fprintf ppf "%3.0fx" v
-  else if v < 9.5e9 then (
-    let long_repr = Printf.sprintf "%.0e" v in
-    assert (String.length long_repr = 5) ;
-    Format.fprintf ppf "%ce%cx" long_repr.[0] long_repr.[4])
-  else Format.fprintf ppf "++++"
+  match Float.classify_float v with
+  | Float.FP_infinite -> Format.fprintf ppf "%4f" v
+  | Float.FP_nan -> Format.fprintf ppf " -- "
+  | FP_normal | FP_subnormal | FP_zero ->
+      if v = 0. then Format.fprintf ppf "  0%%"
+      else if v < 1. /. 100. then
+        let s = Fmt.str "%4.2f%%" (v *. 100.) in
+        let s = String.sub s 1 (String.length s - 1) in
+        Format.fprintf ppf "%s" s
+      else if v < 10. /. 100. then Format.fprintf ppf "%3.1f%%" (v *. 100.)
+      else if v < 1000. /. 100. then Format.fprintf ppf "%3.0f%%" (v *. 100.)
+      else if v < 1000. then Format.fprintf ppf "%3.0fx" v
+      else if v < 9.5e9 then (
+        let long_repr = Printf.sprintf "%.0e" v in
+        assert (String.length long_repr = 5) ;
+        Format.fprintf ppf "%ce%cx" long_repr.[0] long_repr.[4])
+      else Format.fprintf ppf "++++"
 
 module Exponential_moving_average = struct
   type t = {
@@ -302,9 +305,9 @@ module Resample = struct
     let rec aux i1 rev_samples =
       match should_sample ~len1 ~i0 ~len0 ~i1 with
       | `Inside where_inside ->
-          if i1 = len1 - 1 then (
-            (* assert (i0 = len0 - 1) ; *)
-            assert (where_inside = 1.)) ;
+          if i1 = len1 - 1 then
+            assert ((* assert (i0 = len0 - 1) ; *)
+                    where_inside = 1.) ;
           let v1 =
             match mode with
             | `Next_neighbor -> v0
@@ -321,7 +324,7 @@ module Resample = struct
            * assert (i1 = len1) ; *)
           (i1, rev_samples)
     in
-    let (i1, rev_samples) = aux i1 rev_samples in
+    let i1, rev_samples = aux i1 rev_samples in
     {acc with i0 = i0 + 1; i1; prev_v0 = v0; rev_samples}
 
   let finalise {len1; rev_samples; _} =
@@ -332,7 +335,7 @@ module Resample = struct
   let resample_vector mode vec0 len1 =
     let len0 = List.length vec0 in
     if len0 < 2 then invalid_arg "Can't resample curves below 2 points" ;
-    let (v00, vec0) =
+    let v00, vec0 =
       match vec0 with hd :: tl -> (hd, tl) | _ -> assert false
     in
     let acc = create_acc mode ~len0 ~len1 ~v00 in
@@ -407,8 +410,8 @@ module Variable_summary = struct
     let xs = List.filter (fun v -> not (Float.is_nan v)) xs in
     let i = acc.next_in_idx in
     let sample_count = List.length xs |> float_of_int in
-    (* assert (i < acc.in_period_count) ; *)
 
+    (* assert (i < acc.in_period_count) ; *)
     let accumulate_in_sample
         (first, last, ((topv, _) as top), ((botv, _) as bot), histo, ma) v =
       let first = if Float.is_nan first then v else first in
@@ -433,7 +436,7 @@ module Variable_summary = struct
       in
       (first, last, top, bot, histo, ma)
     in
-    let (first_value, last_value, max_value, min_value, distribution, ma) =
+    let first_value, last_value, max_value, min_value, distribution, ma =
       List.fold_left
         accumulate_in_sample
         ( acc.first_value,
@@ -447,7 +450,7 @@ module Variable_summary = struct
     let ma =
       if sample_count = 0. then Exponential_moving_average.forget ma else ma
     in
-    let (rev_evolution, next_out_idx) =
+    let rev_evolution, next_out_idx =
       let rec aux rev_samples next_out_idx =
         match
           Resample.should_sample
