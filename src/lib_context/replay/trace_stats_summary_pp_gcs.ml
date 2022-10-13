@@ -50,6 +50,46 @@ module Pb = struct
     List.map (fun l ->
         PrintBox.text " | " :: interleave (PrintBox.text " | ") l)
 
+  (* let interleave m m' =
+   *   List.map2 (fun row row' ->
+   *       List.map2 (fun cell cell' -> [cell; cell']) row row' |> List.flatten
+   *     ) m m' *)
+
+  let right_strip_columns (m : string list list as 'a) : 'a =
+    let count_trailing_spaces s =
+      let s =
+        String.to_seq s |> List.of_seq |> List.rev |> List.to_seq
+        |> String.of_seq
+      in
+      String.fold_left
+        (fun acc c ->
+          match (acc, c) with
+          | (true, x), ' ' -> (true, x + 1)
+          | (true, x), _ -> (false, x)
+          | (false, _), _ -> acc)
+        (true, 0)
+        s
+      |> snd
+    in
+    let m = transpose_matrix m in
+    let m =
+      List.map (fun col ->
+          let min_space_suffix =
+            List.fold_left
+              (fun acc cell ->
+                if cell = "" then acc else min acc (count_trailing_spaces cell))
+              max_int
+              col
+          in
+          List.map
+            (function
+              | "" -> ""
+              | cell -> String.sub cell 0 (String.length cell - min_space_suffix))
+            col) m
+    in
+    let m = transpose_matrix m in
+    m
+
   let insert_dim_headers ~colnames ~rownames m =
     let ndim_col = List.length (List.hd colnames) in
     let ndim_row = List.length (List.hd rownames) in
@@ -65,14 +105,12 @@ module Pb = struct
         (fun rowi row ->
           let rowi = rowi - ndim_col in
           let l =
-            if rowi < 0 then
-              List.init ndim_row (Fun.const (text ""))
+            if rowi < 0 then List.init ndim_row (Fun.const (text ""))
             else
               List.nth rownames rowi |> List.map text
               |> List.map (align ~h:`Left ~v:`Top)
           in
-          l @ row
-        )
+          l @ row)
         m
     in
     m
@@ -262,9 +300,8 @@ Pour le suffix faut faire gaffe a pas compter les newies, du coup je sais pas tr
 
 
 TODO:
-- maybe implement: append_list_left / append_list_top for [insert_dim_headers]
 - blank redundant header cells
-- implement percents at the `ff` stage, implement [Pb.interleave_matrices]
+- implement %cpu in main timings table
 
 
 *)
@@ -305,6 +342,20 @@ module Point = struct
             let v = Fmt.str "%a" formatter v in
             (k, v))
           ff
+
+      let stringify_percents ff group_of_key =
+        let first_occ_per_group = Hashtbl.create 0 in
+        List.map
+          (fun (k, v) ->
+            let g = group_of_key k in
+            match Hashtbl.find_opt first_occ_per_group g with
+            | None ->
+                Hashtbl.add first_occ_per_group g v ;
+                (k, "     ")
+            | Some denom ->
+                let v = Fmt.str " %a" Utils.pp_percent (v /. denom) in
+                (k, v))
+          ff
     end
   end
 
@@ -315,6 +366,16 @@ module Point = struct
       type point_string = t [@@deriving repr]
 
       type t = point_string list [@@deriving repr ~pp]
+
+      let concat : t -> t -> t =
+       fun sf sf' ->
+        assert (List.length sf = List.length sf') ;
+        List.map2
+          (fun (k, v) (k', v') ->
+            assert (k = k') ;
+            (k, v ^ v'))
+          sf
+          sf'
 
       let rec cartesian_product : 'a list list -> 'a list list = function
         | [] -> []
@@ -348,7 +409,7 @@ module Point = struct
         let cols =
           cartesian_product (List.map (Array.get values_per_dim) col_axes)
         in
-        let matrix =
+        let matrix : string list list =
           List.filter_map
             (fun (row_values : string list) ->
               assert (List.length row_values = List.length row_axes) ;
@@ -361,7 +422,7 @@ module Point = struct
                   row_values
               in
               let any_hit = ref false in
-              let cells : Pb.t list =
+              let cells : string list =
                 List.map
                   (fun (col_values : string list) ->
                     (* Filter [sf] to only keep the points of the current col *)
@@ -373,10 +434,10 @@ module Point = struct
                         col_values
                     in
                     match sf with
-                    | [] -> Pb.text ""
+                    | [] -> ""
                     | [(_key, value)] ->
                         any_hit := true ;
-                        Pb.text value |> Pb.align ~h:`Right ~v:`Top
+                        value (* Pb.text value |> Pb.align ~h:`Right ~v:`Top *)
                     | _ ->
                         (* several identical keys in [sf] *)
                         assert false)
@@ -385,10 +446,11 @@ module Point = struct
               if !any_hit then Some cells else None)
             rows
         in
-        matrix
+        matrix |> Pb.right_strip_columns
+        |> Pb.matrix_to_text
+        |> Pb.align_matrix `Right
         |> Pb.insert_dim_headers ~colnames:cols ~rownames:rows
-        |> Pb.matrix_with_column_spacers
-        |> Pb.grid_l ~bars:false
+        |> Pb.matrix_with_column_spacers |> Pb.grid_l ~bars:false
     end
   end
 end
@@ -412,26 +474,29 @@ let truc (summary_names, summaries) : Point.Float.Frame.t =
     ([|sname; stepname; "wall"|], d.wall);
     ([|sname; stepname; "sys"|], d.sys);
     ([|sname; stepname; "user"|], d.user);
+    (* ([|sname; stepname; "%cpu"|], (d.sys +. d.user) /. d.wall); *)
   ]
 
 let pp_gcs ppf (summary_names, summaries) =
   let ff = truc (summary_names, summaries) in
   Fmt.pf ppf "%a\n%!" Point.Float.Frame.pp ff ;
-  let sf = Point.Float.Frame.stringify_seconds ff (fun k -> [k.(1); k.(2)]) in
-  (* Fmt.pf ppf "%a\n%!" Point.String.Frame.pp sf ; *)
 
+  let x = Point.Float.Frame.stringify_seconds ff (fun k -> [k.(1); k.(2)]) in
+  let y = Point.Float.Frame.stringify_percents ff (fun k -> [k.(1); k.(2)]) in
+  let sf = Point.String.Frame.concat x y in
+
+  (* Fmt.pf ppf "%a\n%!" Point.String.Frame.pp sf ; *)
   let s =
     Point.String.Frame.to_printbox sf ~col_axes:[2] ~row_axes:[1; 0]
     |> PrintBox_text.to_string
   in
-  Fmt.pf ppf "%s\n" s;
+  Fmt.pf ppf "%s\n" s ;
 
   let s =
     Point.String.Frame.to_printbox sf ~col_axes:[2; 0] ~row_axes:[1]
     |> PrintBox_text.to_string
   in
-  Fmt.pf ppf "%s" s;
-
+  Fmt.pf ppf "%s" s ;
 
   ()
 (* ignore (summary_names, summaries) *)
