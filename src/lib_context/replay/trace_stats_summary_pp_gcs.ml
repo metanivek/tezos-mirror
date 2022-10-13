@@ -47,13 +47,7 @@ module Pb = struct
       | ([_] | []) as l -> l
       | hd :: tl -> hd :: sep :: interleave sep tl
     in
-    List.map (fun l ->
-        PrintBox.text " | " :: interleave (PrintBox.text " | ") l)
-
-  (* let interleave m m' =
-   *   List.map2 (fun row row' ->
-   *       List.map2 (fun cell cell' -> [cell; cell']) row row' |> List.flatten
-   *     ) m m' *)
+    List.map (fun l -> interleave (PrintBox.text " | ") l)
 
   let right_strip_columns (m : string list list as 'a) : 'a =
     let count_trailing_spaces s =
@@ -73,7 +67,8 @@ module Pb = struct
     in
     let m = transpose_matrix m in
     let m =
-      List.map (fun col ->
+      List.map
+        (fun col ->
           let min_space_suffix =
             List.fold_left
               (fun acc cell ->
@@ -85,7 +80,8 @@ module Pb = struct
             (function
               | "" -> ""
               | cell -> String.sub cell 0 (String.length cell - min_space_suffix))
-            col) m
+            col)
+        m
     in
     let m = transpose_matrix m in
     m
@@ -114,6 +110,44 @@ module Pb = struct
         m
     in
     m
+
+  let rec text_of_t t =
+    match view t with
+    | Text {l = [txt]; _} -> txt
+    | Empty -> assert false
+    | Text _ -> assert false
+    | Frame _ -> assert false
+    | Pad _ -> assert false
+    | Align {inner; _} -> text_of_t inner
+    | Grid _ -> assert false
+    | Tree _ -> assert false
+    | Link _ -> assert false
+
+  let insert_row_spacers ~should_put_space_before_row (m : t list list) =
+    List.map
+      (fun row ->
+        let row' : string list = row |> List.map text_of_t in
+
+        if should_put_space_before_row row' then
+          [List.map (Fun.const (text "")) row; row]
+        else [row])
+      m
+    |> List.flatten
+
+  let blank_consecutive_equals_on_first_row (m : t list list) =
+    let rec aux prev_value_opt = function
+      | [] -> []
+      | hd :: tl ->
+          let hd_txt = text_of_t hd in
+          let prev_value, hd =
+            match prev_value_opt with
+            | None -> (hd_txt, hd)
+            | Some prev_txt when prev_txt = hd_txt -> (prev_txt, text "")
+            | Some _ -> (hd_txt, hd)
+          in
+          hd :: aux (Some prev_value) tl
+    in
+    match m with [] -> [] | hd :: tl -> aux None hd :: tl
 end
 
 (*
@@ -298,12 +332,6 @@ Pour prefix et mapping tu peux mettre Int63.zero si y'en a pas.
 
 Pour le suffix faut faire gaffe a pas compter les newies, du coup je sais pas trop ce qui est le plus simple.
 
-
-TODO:
-- blank redundant header cells
-- implement %cpu in main timings table
-
-
 *)
 
 module Point = struct
@@ -320,9 +348,9 @@ module Point = struct
 
       type t = point_float list [@@deriving repr ~pp]
 
-      (** Turn a float-frame into a string-frame using [Utils.create_pp_seconds]
+      (** Turn a float-frame into a string-frame using [formatter_of_group]
           in which we've grouped the float-points given [group_of_key]. *)
-      let stringify_seconds ff group_of_key =
+      let stringify ff ~group_of_key ~formatter_of_group =
         let examples = Hashtbl.create 0 in
         List.iter
           (fun (k, v) ->
@@ -334,7 +362,7 @@ module Point = struct
         let formatters = Hashtbl.create 0 in
         Hashtbl.iter
           (fun g examples ->
-            Hashtbl.add formatters g (Utils.create_pp_seconds examples))
+            Hashtbl.add formatters g (formatter_of_group g examples))
           examples ;
         List.map
           (fun (k, v) ->
@@ -343,18 +371,21 @@ module Point = struct
             (k, v))
           ff
 
-      let stringify_percents ff group_of_key =
+      let stringify_percents ff ~keep_blank ~group_of_key =
+        let blank = "     " in
         let first_occ_per_group = Hashtbl.create 0 in
         List.map
           (fun (k, v) ->
-            let g = group_of_key k in
-            match Hashtbl.find_opt first_occ_per_group g with
-            | None ->
-                Hashtbl.add first_occ_per_group g v ;
-                (k, "     ")
-            | Some denom ->
-                let v = Fmt.str " %a" Utils.pp_percent (v /. denom) in
-                (k, v))
+            if keep_blank k then (k, blank)
+            else
+              let g = group_of_key k in
+              match Hashtbl.find_opt first_occ_per_group g with
+              | None ->
+                  Hashtbl.add first_occ_per_group g v ;
+                  (k, blank)
+              | Some denom ->
+                  let v = Fmt.str " %a" Utils.pp_percent (v /. denom) in
+                  (k, v))
           ff
     end
   end
@@ -389,7 +420,8 @@ module Point = struct
         List.filter (fun (k, _v) -> k.(axis) = value) sf
 
       (** This is very similar to [pandas.DataFrame.pivot] *)
-      let to_printbox (sf : t) ~col_axes ~row_axes =
+      let to_printbox (sf : t) ~col_axes ~row_axes ~should_put_space_before_row
+          =
         assert (List.length col_axes >= 1) ;
         assert (List.length row_axes >= 1) ;
         assert (List.length sf >= 1) ;
@@ -437,7 +469,7 @@ module Point = struct
                     | [] -> ""
                     | [(_key, value)] ->
                         any_hit := true ;
-                        value (* Pb.text value |> Pb.align ~h:`Right ~v:`Top *)
+                        value
                     | _ ->
                         (* several identical keys in [sf] *)
                         assert false)
@@ -446,59 +478,196 @@ module Point = struct
               if !any_hit then Some cells else None)
             rows
         in
-        matrix |> Pb.right_strip_columns
-        |> Pb.matrix_to_text
+        matrix |> Pb.right_strip_columns |> Pb.matrix_to_text
         |> Pb.align_matrix `Right
         |> Pb.insert_dim_headers ~colnames:cols ~rownames:rows
+        |> Pb.blank_consecutive_equals_on_first_row |> Pb.transpose_matrix
+        |> Pb.blank_consecutive_equals_on_first_row |> Pb.transpose_matrix
+        |> Pb.insert_row_spacers ~should_put_space_before_row
         |> Pb.matrix_with_column_spacers |> Pb.grid_l ~bars:false
     end
   end
 end
 
-let truc (summary_names, summaries) : Point.Float.Frame.t =
-  let ( let+ ) () f =
-    List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
-  in
-  let+ sname, s = () in
+module Table1 = struct
+  let truc (summary_names, summaries) : Point.Float.Frame.t =
+    let is_step_finalise = function
+      | "worker startup" -> false
+      | "before finalise" -> false
+      | "worker wait" -> true
+      | "read output" -> true
+      | "copy latest newies" -> true
+      | "swap and purge" -> true
+      | "unlink" -> true
+      | x ->
+          Fmt.epr "Please edit code to classify: %S\n%!" x ;
+          assert false
+    in
+    let ( let+ ) () f =
+      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
+    in
+    let+ sname, s = () in
 
-  let ( let+ ) () f =
-    (* TODO: Average GCs *)
-    f (List.hd s.gcs)
-  in
-  let+ (gc : Def.Gc.t) = () in
+    let ( let+ ) () f =
+      (* TODO: Average GCs *)
+      f (List.hd s.gcs)
+    in
+    let+ (gc : Def.Gc.t) = () in
+    let sum_timing get steps =
+      List.fold_left (fun acc (_, v) -> acc +. get v) 0. steps
+    in
+    let total_wall = sum_timing (fun d -> d.Def.Gc.wall) gc.steps in
+    let total_sys = sum_timing (fun d -> d.Def.Gc.sys) gc.steps in
+    let total_user = sum_timing (fun d -> d.Def.Gc.user) gc.steps in
+    let finalise_steps =
+      List.filter (fun (stepname, _) -> is_step_finalise stepname) gc.steps
+    in
+    let finalise_wall = sum_timing (fun d -> d.Def.Gc.wall) finalise_steps in
+    let finalise_sys = sum_timing (fun d -> d.Def.Gc.sys) finalise_steps in
+    let finalise_user = sum_timing (fun d -> d.Def.Gc.user) finalise_steps in
+    let ff_of_timings stepname wall sys user =
+      [
+        ([|sname; stepname; "wall"|], wall);
+        ([|sname; stepname; "share"|], wall /. total_wall);
+        ([|sname; stepname; "sys"|], sys);
+        ([|sname; stepname; "user"|], user);
+        ([|sname; stepname; "%cpu"|], (sys +. user) /. wall);
+        ([|sname; stepname; "%sys"|], sys /. wall);
+        ([|sname; stepname; "%user"|], user /. wall);
+      ]
+    in
+    let ff_steps =
+      let ( let+ ) () f = List.map f gc.steps |> List.flatten in
+      let+ stepname, (d : Def.Gc.duration) = () in
+      ff_of_timings stepname d.wall d.sys d.user
+    in
+    ff_of_timings "total" total_wall total_sys total_user
+    @ ff_of_timings "finalise" finalise_wall finalise_sys finalise_user
+    @ ff_steps
 
-  let ( let+ ) () f = List.map f gc.steps |> List.flatten in
-  let+ stepname, (d : Def.Gc.duration) = () in
+  let truc ppf (summary_names, summaries) =
+    let ff = truc (summary_names, summaries) in
+    let x =
+      let group_of_key k = [k.(1); k.(2)] in
+      let formatter_of_group g occurences =
+        if List.exists (fun s -> String.contains s '%') g || List.mem "share" g
+        then Utils.pp_percent
+        else Utils.create_pp_seconds occurences
+      in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank =
+        Array.exists (fun s -> String.contains s '%' || s = "share")
+      in
+      let group_of_key k = [k.(1); k.(2)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
 
-  [
-    ([|sname; stepname; "wall"|], d.wall);
-    ([|sname; stepname; "sys"|], d.sys);
-    ([|sname; stepname; "user"|], d.user);
-    (* ([|sname; stepname; "%cpu"|], (d.sys +. d.user) /. d.wall); *)
-  ]
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = function
+        | "worker startup" :: sname :: __ when sname = List.hd summary_names ->
+            true
+        | _ -> false
+      in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[2]
+        ~row_axes:[1; 0]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
+
+module Table2 = struct
+  let truc (summary_names, summaries) : Point.Float.Frame.t =
+    let ( let+ ) () f =
+      List.map2 (fun x y -> f (x, y)) summary_names summaries |> List.flatten
+    in
+    let+ sname, s = () in
+
+    let ( let+ ) () f =
+      (* TODO: Average GCs *)
+      f (List.hd s.gcs)
+    in
+    let+ (gc : Def.Gc.t) = () in
+    let sum_timing get steps =
+      List.fold_left (fun acc (_, v) -> acc +. get v) 0. steps
+    in
+    let total_wall = sum_timing (fun d -> d.Def.Gc.duration.wall) gc.worker.steps in
+    let total_sys = sum_timing (fun d -> d.Def.Gc.duration.sys) gc.worker.steps in
+    let total_user = sum_timing (fun d -> d.Def.Gc.duration.user) gc.worker.steps in
+    let ff_of_timings stepname wall sys user =
+      [
+        ([|sname; stepname; "wall"|], wall);
+        ([|sname; stepname; "share"|], wall /. total_wall);
+        ([|sname; stepname; "sys"|], sys);
+        ([|sname; stepname; "user"|], user);
+        ([|sname; stepname; "%cpu"|], (sys +. user) /. wall);
+        ([|sname; stepname; "%sys"|], sys /. wall);
+        ([|sname; stepname; "%user"|], user /. wall);
+      ]
+    in
+    let ff_steps =
+      let ( let+ ) () f = List.map f gc.worker.steps |> List.flatten in
+      let+ stepname, (d : Def.Gc.step) = () in
+      ff_of_timings stepname d.duration.wall d.duration.sys d.duration.user
+    in
+    ff_of_timings "total" total_wall total_sys total_user
+    @ ff_steps
+
+  let truc ppf (summary_names, summaries) =
+    let ff = truc (summary_names, summaries) in
+    let x =
+      let group_of_key k = [k.(1); k.(2)] in
+      let formatter_of_group g occurences =
+        if List.exists (fun s -> String.contains s '%') g || List.mem "share" g
+        then Utils.pp_percent
+        else Utils.create_pp_seconds occurences
+      in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank =
+        Array.exists (fun s -> String.contains s '%' || s = "share")
+      in
+      let group_of_key k = [k.(1); k.(2)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
+
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = function
+        | "open files" :: sname :: __ when sname = List.hd summary_names ->
+            true
+        | _ -> false
+      in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[2]
+        ~row_axes:[1; 0]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
 
 let pp_gcs ppf (summary_names, summaries) =
-  let ff = truc (summary_names, summaries) in
-  Fmt.pf ppf "%a\n%!" Point.Float.Frame.pp ff ;
+  Format.fprintf
+    ppf
+    {|
+-- Main timings --
+%a
 
-  let x = Point.Float.Frame.stringify_seconds ff (fun k -> [k.(1); k.(2)]) in
-  let y = Point.Float.Frame.stringify_percents ff (fun k -> [k.(1); k.(2)]) in
-  let sf = Point.String.Frame.concat x y in
+-- Worker timings --
+%a
 
-  (* Fmt.pf ppf "%a\n%!" Point.String.Frame.pp sf ; *)
-  let s =
-    Point.String.Frame.to_printbox sf ~col_axes:[2] ~row_axes:[1; 0]
-    |> PrintBox_text.to_string
-  in
-  Fmt.pf ppf "%s\n" s ;
 
-  let s =
-    Point.String.Frame.to_printbox sf ~col_axes:[2; 0] ~row_axes:[1]
-    |> PrintBox_text.to_string
-  in
-  Fmt.pf ppf "%s" s ;
 
-  ()
-(* ignore (summary_names, summaries) *)
-(* List.iter2 (fun (sname, s) ->) summary_names, summaries; *)
-(* Format.fprintf ppf "DELICIEUX" *)
+|}
+    Table1.truc
+    (summary_names, summaries)
+    Table2.truc
+    (summary_names, summaries)

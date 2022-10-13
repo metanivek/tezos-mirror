@@ -119,6 +119,10 @@ let create_pp_seconds examples =
 let pp_percent ppf v =
   if not @@ Float.is_finite v then Format.fprintf ppf "%4f" v
   else if v = 0. then Format.fprintf ppf "  0%%"
+  else if v < 1. /. 100. then
+    let s = Fmt.str "%4.2f%%" (v *. 100.) in
+    let s = String.sub s 1 (String.length s - 1) in
+    Format.fprintf ppf "%s" s
   else if v < 10. /. 100. then Format.fprintf ppf "%3.1f%%" (v *. 100.)
   else if v < 1000. /. 100. then Format.fprintf ppf "%3.0f%%" (v *. 100.)
   else if v < 1000. then Format.fprintf ppf "%3.0fx" v
