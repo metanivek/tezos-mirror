@@ -405,6 +405,7 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
 
     Def.append_row t.writer op
 
+  let add_gc_start_row t = Def.append_row t.writer (`Gc_start)
   let add_gc_row t stats = Def.append_row t.writer (`Gc_finalised stats)
 end
 
@@ -624,6 +625,8 @@ struct
         worker;
       }
   end
+
+  let report_gc_start () = Writer.add_gc_start_row (get_writer ())
 
   let report_gc stats =
     Fmt.epr "\n%!";

@@ -285,6 +285,7 @@ let sum_ocaml_gc = reduce add_ocaml_gc
 |               nvcsw/block |
 |              nivcsw/block |
 
+TODO: Number of GCs in the setup/config
 TODO: Merge diffs of irmin-stats for old file sizes
 TODO: Need main's stats during GC in the summary
 TODO: toposort for step names

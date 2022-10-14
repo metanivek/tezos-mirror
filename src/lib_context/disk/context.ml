@@ -335,7 +335,6 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
     | None ->
         Fmt.failwith "%a: unknown context hash" Context_hash.pp context_hash
     | Some commit -> (
-        let* () = Events.(emit starting_gc) context_hash in
         let finished = function
           | Ok (stats) ->
               (* Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats; *)
@@ -349,6 +348,7 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         let* launch_result = Store.Gc.run ~finished repo commit_key in
         match launch_result with
         | Ok _ ->
+            let* () = Events.(emit starting_gc) context_hash in
             (* Logs.info (fun m ->
              *     m "Launch GC for commit %a@." Context_hash.pp context_hash) ; *)
             return_unit

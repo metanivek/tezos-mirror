@@ -627,19 +627,34 @@ struct
   let gc_every = 20
   let gc_distance_in_the_past = 20
 
-  let monitor_latest_gc (rs : warm_replay_state) =
-    let open Irmin_pack_unix.Stats in
-    let latest_gc = (get ()).latest_gc |> Latest_gc.export in
-    match rs.latest_gc, latest_gc with
-    | Some _, None -> assert false
-    | None, None -> ()
-    | None, Some s ->
-        rs.latest_gc <- Some s ;
-        Stat_recorder.report_gc s
-    | Some old, Some s when old.generation <> s.generation ->
-        rs.latest_gc <- Some s ;
-        Stat_recorder.report_gc s
-    | Some _, Some _ -> ()
+  module Event_sink_for_gc = struct
+    type t = unit
+
+    let uri_scheme = "context-replay"
+
+    let configure _ = Lwt.return (Ok ())
+
+    let handle (type a) () m ?section (_v : unit -> a) =
+      ignore section ;
+      let module M = (val m : Internal_event.EVENT_DEFINITION with type t = a)
+      in
+      let () =
+        match M.name with
+        | "starting_gc" -> Stat_recorder.report_gc_start ()
+        | "ending_gc" -> (
+            let open Irmin_pack_unix.Stats in
+            let latest_gc = (get ()).latest_gc |> Latest_gc.export in
+            match latest_gc with
+            | None -> assert false
+            | Some s -> Stat_recorder.report_gc s)
+        | "gc_launch_failure" -> ()
+        | "gc_failure" -> assert false
+        | _ -> assert false
+      in
+      Lwt.return (Ok ())
+
+    let close () = Lwt.return (Ok ())
+  end
 
   let exec_commit rs ((time, message, c), hash) =
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
@@ -662,15 +677,7 @@ struct
         Lwt.return_unit
     in
     on_rhs_hash rs hash hash' ;
-    monitor_latest_gc rs;
-
-    (* if rs.current_row.level > 1917735 then begin
-     *
-     * end; *)
-
-
-
-
+    (* monitor_latest_gc rs ; *)
     Lwt.return_unit
 
   let rec exec_init (rs : cold_replay_state) (row : Def.row) (readonly, ()) =
@@ -692,7 +699,9 @@ struct
         ?patch_context
         store_dir
     in
-    let latest_gc = Irmin_pack_unix.Stats.((get ()).latest_gc |> Latest_gc.export) in
+    let latest_gc =
+      Irmin_pack_unix.Stats.((get ()).latest_gc |> Latest_gc.export)
+    in
     let rs =
       {
         index;
@@ -906,6 +915,12 @@ struct
     let default_allocation_policy = 2 in
     let current = Gc.get () in
     Gc.set {current with allocation_policy = default_allocation_policy} ;
+    let* () =
+      let open Internal_event in
+      All_sinks.register (module Event_sink_for_gc) ;
+      let+ res = All_sinks.activate (Uri.of_string "context-replay://") in
+      match res with Error _err -> assert false | Ok () -> ()
+    in
 
     (* 1. First open the replayable trace, *)
     let (_, block_count, _, row_seq) =

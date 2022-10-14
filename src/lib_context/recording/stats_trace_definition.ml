@@ -449,6 +449,7 @@ module V1 = struct
     | `Commit of Commit_op.payload
     | `Close of Stats_op.payload
     | `Dump_context of Stats_op.payload
+    | `Gc_start
     | `Gc_finalised of Gc.t ]
   [@@deriving repr]
 end
