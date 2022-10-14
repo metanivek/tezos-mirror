@@ -28,6 +28,7 @@ module Utils = Trace_stats_summary_utils
 module Hashtbl = Stdlib.Hashtbl
 module List = Stdlib.List
 module Int63 = Optint.Int63
+module Option = Stdlib.Option
 
 module Pb = struct
   include PrintBox
@@ -284,29 +285,6 @@ let sum_ocaml_gc = reduce add_ocaml_gc
 |               nvcsw/block |
 |              nivcsw/block |
 
-| -- File sizes --
-|                             summary name |      GC-run-1 |     GC-run-2 |
-|                   number of GCs averaged |             1 |            1 |
-|                                          | ------------- |------------- |
-|             new suffix file size (bytes) |           5GB |   6GB (+20%) |
-|             new prefix file size (bytes) |
-|          new reachable file size (bytes) |
-|             new sorted file size (bytes) |
-|            new mapping file size (bytes) |
-|                                          |
-|          former suffix file size (bytes) |
-|          former prefix file size (bytes) |
-|         former mapping file size (bytes) |
-|                                          |
-|     suffix start offset progress (bytes) |
-|               total file sizes before GC |
-|                 total file before unlink |
-|                  total file after unlink |
-|                                          |
-|       suffix newies in first worker loop |
-|      suffix newies in extra worker loops |
-|                suffix newies in finalise |
-
 TODO: Merge diffs of irmin-stats for old file sizes
 TODO: Need main's stats during GC in the summary
 TODO: toposort for step names
@@ -476,7 +454,7 @@ let aggregate_gc_product summary_names summaries f =
   let gc_product f sname summary = f sname (List.hd summary.gcs) in
   summary_product (gc_product f)
 
-module Table1 = struct
+module Main_timings = struct
   let is_step_finalise = function
     | "worker startup" -> false
     | "before finalise" -> false
@@ -491,10 +469,7 @@ module Table1 = struct
 
   let build_ff summary_names summaries : Point.Float.Frame.t =
     aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
-    let total_duration =
-      List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
-      |> sum_duration
-    in
+    let total_duration = List.map (fun (_, d) -> d) gc.steps |> sum_duration in
     let finalise_duration =
       gc.steps
       |> List.filter (fun (stepname, _) -> is_step_finalise stepname)
@@ -554,7 +529,7 @@ module Table1 = struct
     Fmt.pf ppf "%s" s
 end
 
-module Table2 = struct
+module Worker_timings = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
     aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
     let total_duration =
@@ -573,7 +548,9 @@ module Table2 = struct
       ]
     in
     let ff_steps =
-      List.map (fun (stepname, d) -> ff_of_timings stepname d) gc.steps
+      List.map
+        (fun (stepname, s) -> ff_of_timings stepname s.Def.Gc.duration)
+        gc.worker.steps
       |> List.flatten
     in
     ff_of_timings "total" total_duration @ ff_steps
@@ -613,7 +590,7 @@ module Table2 = struct
     Fmt.pf ppf "%s" s
 end
 
-module Table3 = struct
+module Worker_stats = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
     aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
     let w : Def.Gc.worker = gc.worker in
@@ -745,7 +722,7 @@ module Table3 = struct
     Fmt.pf ppf "%s" s
 end
 
-module Table4 = struct
+module Worker_stats_per_step = struct
   let rusage_ff_of_worker_step sname stepname (step : Def.Gc.step) =
     let r = step.rusage in
     [
@@ -850,10 +827,92 @@ module Table4 = struct
     Fmt.pf ppf "%s" s
 end
 
+module File_sizes = struct
+  let build_ff summary_names summaries : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    let start0 = gc.before_suffix_start_offset |> Int63.to_float in
+    let start1 = gc.after_suffix_start_offset |> Int63.to_float in
+    let end0 = gc.before_suffix_end_offset |> Int63.to_float in
+    let end1 = gc.after_suffix_end_offset |> Int63.to_float in
+    let suffix0 = end0 -. start0 in
+    let suffix1 = end1 -. start1 in
+    let get name =
+      List.assoc_opt name gc.worker.files
+      |> Option.map Int63.to_float
+      |> Option.value ~default:Float.nan
+    in
+    let tot0 = get "old prefix" +. suffix0 +. get "old mapping" in
+    let tot1 = get "prefix" +. suffix1 +. get "mapping" in
+    let first_loop, extra_loops =
+      match gc.worker.suffix_transfers with
+      | [] -> assert false
+      | hd :: tl ->
+          ( Int63.to_float hd,
+            List.map Int63.to_float tl |> List.fold_left ( +. ) 0. )
+    in
+    [
+      ([|sname; "former suffix file size"|], suffix0);
+      ([|sname; "new suffix file size"|], suffix1);
+      ([|sname; "former prefix file size"|], get "old prefix");
+      ([|sname; "new prefix file size"|], get "prefix");
+      ([|sname; "former mapping file size"|], get "old mapping");
+      ([|sname; "new mapping file size"|], get "mapping");
+      ([|sname; "reachable file size"|], get "reachable");
+      ([|sname; "sorted file size"|], get "sorted");
+      ([|sname; "suffix start offset progress"|], start1 -. start0);
+      ([|sname; "total file sizes before GC"|], tot0);
+      ([|sname; "total file sizes after GC"|], tot1);
+      ([|sname; "total file sizes before unlink"|], tot0 +. tot1);
+      ([|sname; "suffix oldies in first worker loop"|], end0 -. start1);
+      ( [|sname; "suffix newies in first worker loop"|],
+        first_loop -. (end0 -. start1) );
+      ([|sname; "suffix newies in extra worker loops"|], extra_loops);
+      ( [|sname; "suffix newies in finalise"|],
+        suffix1 -. first_loop -. extra_loops );
+    ]
+
+  let pp ppf (summary_names, summaries) =
+    let ff = build_ff summary_names summaries in
+    let x =
+      let group_of_key k = [k.(1)] in
+      let formatter_of_group _g _occurences = Utils.pp_real `M in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank = Fun.const false in
+      let group_of_key k = [k.(1)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = function
+        | ("suffix start offset progress" | "suffix oldies in first worker loop")
+          :: _ ->
+            true
+        | _ -> false
+      in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[0]
+        ~row_axes:[1]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
+
 let pp_gcs ppf (summary_names, summaries) =
   Format.fprintf
     ppf
-    {|
+    {|-- Config / Setup --
+
+
+-- Main thread during GC --
+
+
+-- File sizes (bytes) --
+%a
+
 -- Worker stats --
 %a
 
@@ -863,7 +922,7 @@ let pp_gcs ppf (summary_names, summaries) =
 -- Worker timings --
 %a
 
--- Worker runsage stats per step --
+-- Worker rusage stats per step --
 %a
 
 -- Worker disk stats per step --
@@ -876,23 +935,22 @@ let pp_gcs ppf (summary_names, summaries) =
 %a
 
 -- Worker ocaml_gc stats per step --
-%a
-
-
-|}
-    Table3.pp
+%a|}
+    File_sizes.pp
     (summary_names, summaries)
-    Table1.pp
+    Worker_stats.pp
     (summary_names, summaries)
-    Table2.pp
+    Main_timings.pp
     (summary_names, summaries)
-    Table4.pp
+    Worker_timings.pp
+    (summary_names, summaries)
+    Worker_stats_per_step.pp
     (summary_names, summaries, `Rusage)
-    Table4.pp
+    Worker_stats_per_step.pp
     (summary_names, summaries, `Disk)
-    Table4.pp
+    Worker_stats_per_step.pp
     (summary_names, summaries, `Pack_store)
-    Table4.pp
+    Worker_stats_per_step.pp
     (summary_names, summaries, `Inode)
-    Table4.pp
+    Worker_stats_per_step.pp
     (summary_names, summaries, `Ocaml_gc)

@@ -42,8 +42,12 @@ type curve = float list [@@deriving repr]
     [v]. *)
 val snap_to_integer : significant_digits:int -> float -> float
 
-(** [create_pp_real examples] is [pp_real], a float pretty-printer that adapts
-    to the [examples] shown to it.
+(** [pp_real kind] is a float pretty-printer that formats given [kind]. *)
+val pp_real :
+  [< `D3 | `D6 | `E | `G | `I | `M | `T] -> Format.formatter -> float -> unit
+
+(** [create_pp_real examples] is [pp_real kind] where [kind] has been
+    automatically determined given [examples].
 
     It is highly recommended, but not mandatory, for all the numbers passed to
     [pp_real] to be included in [examples].

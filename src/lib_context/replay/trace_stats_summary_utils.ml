@@ -53,6 +53,21 @@ let pp_six_digits_with_spacer ppf v =
   let b = String.sub s (len - 3) 3 in
   Format.fprintf ppf "%s_%s" a b
 
+let pp_real kind ppf v =
+  match Float.classify_float v with
+  | Float.FP_infinite -> Format.fprintf ppf "%4f" v
+  | FP_nan -> Format.fprintf ppf "n/a"
+  | FP_zero -> Format.fprintf ppf "0"
+  | FP_normal | FP_subnormal -> (
+      match kind with
+      | `T -> Format.fprintf ppf "%.3f T" (v /. 1e12)
+      | `G -> Format.fprintf ppf "%.3f G" (v /. 1e9)
+      | `M -> Format.fprintf ppf "%.3f M" (v /. 1e6)
+      | `I -> Format.fprintf ppf "%#d" (Float.round v |> int_of_float)
+      | `D3 -> Format.fprintf ppf "%.3f" v
+      | `D6 -> pp_six_digits_with_spacer ppf v
+      | `E -> Format.fprintf ppf "%.3e" v)
+
 let create_pp_real ?(significant_digits = 7) examples =
   let examples = List.map (snap_to_integer ~significant_digits) examples in
   let all_integer =
@@ -69,25 +84,17 @@ let create_pp_real ?(significant_digits = 7) examples =
       Float.neg_infinity
       examples
   in
-  let finite_pp =
-    if absmax /. 1e12 >= 10. then fun ppf v ->
-      Format.fprintf ppf "%.3f T" (v /. 1e12)
-    else if absmax /. 1e9 >= 10. then fun ppf v ->
-      Format.fprintf ppf "%.3f G" (v /. 1e9)
-    else if absmax /. 1e6 >= 10. then fun ppf v ->
-      Format.fprintf ppf "%.3f M" (v /. 1e6)
-    else if absmax /. 1e3 >= 10. then fun ppf v ->
-      Format.fprintf ppf "%#d" (Float.round v |> int_of_float)
-    else if all_integer then fun ppf v ->
-      Format.fprintf ppf "%#d" (Float.round v |> int_of_float)
-    else if absmax /. 1. >= 10. then fun ppf v -> Format.fprintf ppf "%.3f" v
-    else if absmax /. 1e-3 >= 10. then pp_six_digits_with_spacer
-    else fun ppf v -> Format.fprintf ppf "%.3e" v
+  let kind =
+    if absmax /. 1e12 >= 10. then `T
+    else if absmax /. 1e9 >= 10. then `G
+    else if absmax /. 1e6 >= 10. then `M
+    else if absmax /. 1e3 >= 10. then `I
+    else if all_integer then `I
+    else if absmax /. 1. >= 10. then `D3
+    else if absmax /. 1e-3 >= 10. then `D6
+    else `E
   in
-  fun ppf v ->
-    if Float.is_nan v then Format.fprintf ppf "n/a"
-    else if Float.is_infinite v then Format.fprintf ppf "%f" v
-    else finite_pp ppf v
+  pp_real kind
 
 let create_pp_seconds examples =
   let absmax =
@@ -119,7 +126,7 @@ let create_pp_seconds examples =
 let pp_percent ppf v =
   match Float.classify_float v with
   | Float.FP_infinite -> Format.fprintf ppf "%4f" v
-  | Float.FP_nan -> Format.fprintf ppf " -- "
+  | FP_nan -> Format.fprintf ppf " -- "
   | FP_normal | FP_subnormal | FP_zero ->
       if v = 0. then Format.fprintf ppf "  0%%"
       else if v < 1. /. 100. then
