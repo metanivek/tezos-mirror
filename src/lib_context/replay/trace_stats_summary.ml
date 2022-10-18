@@ -969,40 +969,7 @@ let misc_stats_folder header =
   in
   Trace_common.Parallel_folders.folder acc0 accumulate finalise
 
-(* Section 3/4 - Converter from stats_trace to summary *)
-
-(** Fold over [row_seq] and produce the summary.
-
-    {3 Parallel Folders}
-
-    Almost all entries in [t] require to independently fold over the rows of the
-    stats trace, but we want:
-
-    - not to fully load the trace in memory,
-    - not to reread the trace from disk once for each entry,
-    - this current file to be verbose and simple,
-    - to have fun with GADTs and avoid mutability.
-
-    All the boilerplate is hidden behind [Trace_common.Parallel_folders], a
-    datastructure that holds all folder functions, takes care of feeding the
-    rows to those folders, and preseves the types.
-
-    In the code below, [pf0] is the initial parallel folder, before the first
-    accumulation. Each [|+ ...] statement declares a [acc, accumulate, finalise]
-    triplet, i.e. a folder.
-
-    [val acc : acc] is the initial empty accumulation of a folder.
-
-    [val accumulate : acc -> row -> acc] needs to be folded over all rows of the
-    stats trace. Calling [Parallel_folders.accumulate pf row] will feed [row] to
-    every folders.
-
-    [val finalise : acc -> v] has to be applied on the final [acc] of a folder
-    in order to produce the final value of that folder - which value is meant to
-    be stored in [Trace_stats_summary.t]. Calling [Parallel_folders.finalise pf]
-    will finalise all folders and pass their result to [construct]. *)
-let summarise' header block_count (block_seq : block Seq.t) =
-  let bs_folder_of_bag_getter ?should_cumulate_value ?is_linearly_increasing
+  let bs_folder_of_bag_getter  header block_count ?should_cumulate_value ?is_linearly_increasing
       value_of_bag =
     Bag_stat_folder.create
       ?should_cumulate_value
@@ -1010,9 +977,9 @@ let summarise' header block_count (block_seq : block Seq.t) =
       header
       block_count
       value_of_bag
-  in
 
-  let pack_folder =
+
+  let pack_folder  header block_count =
     let construct finds_total finds_from_staging finds_from_lru
         finds_from_pack_direct finds_from_pack_indexed cache_misses
         appended_hashes appended_offsets inode_add inode_remove inode_of_seq
@@ -1042,36 +1009,37 @@ let summarise' header block_count (block_seq : block Seq.t) =
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi = float_of_int in
+      let x = bs_folder_of_bag_getter header block_count in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.finds_total)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag -> ofi bag.Def.pack.finds_total)
+      |+ x (fun bag ->
              ofi bag.Def.pack.finds_from_staging)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.finds_from_lru)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag -> ofi bag.Def.pack.finds_from_lru)
+      |+ x (fun bag ->
              ofi bag.Def.pack.finds_from_pack_direct)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag ->
              ofi bag.Def.pack.finds_from_pack_indexed)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.cache_misses)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.appended_hashes)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.appended_offsets)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_add)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_remove)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_of_seq)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_of_raw)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_rec_add)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_rec_remove)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_to_binv)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_decode_bin)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.pack.inode_encode_bin)
+      |+ x (fun bag -> ofi bag.Def.pack.cache_misses)
+      |+ x (fun bag -> ofi bag.Def.pack.appended_hashes)
+      |+ x (fun bag -> ofi bag.Def.pack.appended_offsets)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_add)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_remove)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_of_seq)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_of_raw)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_rec_add)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_rec_remove)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_to_binv)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_decode_bin)
+      |+ x (fun bag -> ofi bag.Def.pack.inode_encode_bin)
       |> seal
     in
     Trace_common.Parallel_folders.folder
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let tree_folder =
+
+  let tree_folder  header block_count =
     let construct contents_hash contents_find contents_add contents_mem
         node_hash node_mem node_index node_add node_find node_val_v
         node_val_find node_val_list =
@@ -1093,28 +1061,29 @@ let summarise' header block_count (block_seq : block Seq.t) =
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi = float_of_int in
+      let x = bs_folder_of_bag_getter header block_count in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_hash)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_find)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_add)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.contents_mem)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_hash)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_mem)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_index)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_add)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_find)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_val_v)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_val_find)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.tree.node_val_list)
+      |+ x (fun bag -> ofi bag.Def.tree.contents_hash)
+      |+ x (fun bag -> ofi bag.Def.tree.contents_find)
+      |+ x (fun bag -> ofi bag.Def.tree.contents_add)
+      |+ x (fun bag -> ofi bag.Def.tree.contents_mem)
+      |+ x (fun bag -> ofi bag.Def.tree.node_hash)
+      |+ x (fun bag -> ofi bag.Def.tree.node_mem)
+      |+ x (fun bag -> ofi bag.Def.tree.node_index)
+      |+ x (fun bag -> ofi bag.Def.tree.node_add)
+      |+ x (fun bag -> ofi bag.Def.tree.node_find)
+      |+ x (fun bag -> ofi bag.Def.tree.node_val_v)
+      |+ x (fun bag -> ofi bag.Def.tree.node_val_find)
+      |+ x (fun bag -> ofi bag.Def.tree.node_val_list)
       |> seal
     in
     Trace_common.Parallel_folders.folder
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let index_folder =
+
+  let index_folder header block_count =
     let construct bytes_read nb_reads bytes_written nb_writes bytes_both nb_both
         nb_merge cumu_data_bytes merge_durations =
       {
@@ -1132,17 +1101,18 @@ let summarise' header block_count (block_seq : block Seq.t) =
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi = float_of_int in
+      let x = bs_folder_of_bag_getter header block_count in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.index.bytes_read)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.index.nb_reads)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.index.bytes_written)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.index.nb_writes)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag -> ofi bag.Def.index.bytes_read)
+      |+ x (fun bag -> ofi bag.Def.index.nb_reads)
+      |+ x (fun bag -> ofi bag.Def.index.bytes_written)
+      |+ x (fun bag -> ofi bag.Def.index.nb_writes)
+      |+ x (fun bag ->
              ofi (bag.Def.index.bytes_read + bag.Def.index.bytes_written))
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag ->
              ofi (bag.Def.index.nb_reads + bag.Def.index.nb_writes))
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.index.nb_merge)
-      |+ bs_folder_of_bag_getter ~should_cumulate_value:true (fun bag ->
+      |+ x (fun bag -> ofi bag.Def.index.nb_merge)
+      |+ x ~should_cumulate_value:true (fun bag ->
              (* When 1 merge occured, [data_size] bytes were written.
 
                 When 2 merge occured, [data_size * 2 - log_size] bytes were
@@ -1158,9 +1128,9 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let gc_folder =
+
+  let gc_folder header block_count =
     let construct minor_words promoted_words major_words minor_collections
         major_collections compactions major_heap_bytes major_heap_top_bytes =
       {
@@ -1177,17 +1147,18 @@ let summarise' header block_count (block_seq : block Seq.t) =
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi = float_of_int in
+      let x = bs_folder_of_bag_getter header block_count in
       let ws = header.Def.word_size / 8 |> float_of_int in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.minor_words)
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.promoted_words)
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.ocaml_gc.major_words)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.minor_collections)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.major_collections)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi bag.Def.ocaml_gc.compactions)
-      |+ bs_folder_of_bag_getter ~is_linearly_increasing:false (fun bag ->
+      |+ x (fun bag -> bag.Def.ocaml_gc.minor_words)
+      |+ x (fun bag -> bag.Def.ocaml_gc.promoted_words)
+      |+ x (fun bag -> bag.Def.ocaml_gc.major_words)
+      |+ x (fun bag -> ofi bag.Def.ocaml_gc.minor_collections)
+      |+ x (fun bag -> ofi bag.Def.ocaml_gc.major_collections)
+      |+ x (fun bag -> ofi bag.Def.ocaml_gc.compactions)
+      |+ x ~is_linearly_increasing:false (fun bag ->
              ofi bag.Def.ocaml_gc.heap_words *. ws)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag ->
              ofi bag.Def.ocaml_gc.top_heap_words *. ws)
       |> seal
     in
@@ -1195,23 +1166,24 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let disk_folder =
+
+  let disk_folder header block_count =
     let construct index_data index_log index_log_async store_dict store_pack =
       {index_data; index_log; index_log_async; store_dict; store_pack}
     in
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi64 = Int64.to_float in
+      let x = bs_folder_of_bag_getter header block_count in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.disk.index_data)
-      |+ bs_folder_of_bag_getter ~is_linearly_increasing:false (fun bag ->
+      |+ x (fun bag -> ofi64 bag.Def.disk.index_data)
+      |+ x ~is_linearly_increasing:false (fun bag ->
              ofi64 bag.Def.disk.index_log)
-      |+ bs_folder_of_bag_getter ~is_linearly_increasing:false (fun bag ->
+      |+ x ~is_linearly_increasing:false (fun bag ->
              ofi64 bag.Def.disk.index_log_async)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.disk.store_dict)
-      |+ bs_folder_of_bag_getter (fun bag ->
+      |+ x (fun bag -> ofi64 bag.Def.disk.store_dict)
+      |+ x (fun bag ->
              (* This would not be linearly increasing with irmin layers *)
              ofi64 bag.Def.disk.store_pack)
       |> seal
@@ -1220,9 +1192,9 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let rusage_folder =
+
+  let rusage_folder header block_count =
     let construct utime stime maxrss minflt majflt inblock oublock nvcsw nivcsw
         =
       {utime; stime; maxrss; minflt; majflt; inblock; oublock; nvcsw; nivcsw}
@@ -1230,25 +1202,26 @@ let summarise' header block_count (block_seq : block Seq.t) =
     let acc0 =
       let open Trace_common.Parallel_folders in
       let ofi64 = Int64.to_float in
+      let x = bs_folder_of_bag_getter header block_count in
       open_ construct
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.rusage.utime)
-      |+ bs_folder_of_bag_getter (fun bag -> bag.Def.rusage.stime)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.maxrss)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.minflt)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.majflt)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.inblock)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.oublock)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.nvcsw)
-      |+ bs_folder_of_bag_getter (fun bag -> ofi64 bag.Def.rusage.nivcsw)
+      |+ x (fun bag -> bag.Def.rusage.utime)
+      |+ x (fun bag -> bag.Def.rusage.stime)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.maxrss)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.minflt)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.majflt)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.inblock)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.oublock)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.nvcsw)
+      |+ x (fun bag -> ofi64 bag.Def.rusage.nivcsw)
       |> seal
     in
     Trace_common.Parallel_folders.folder
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let block_specs_folder =
+
+  let block_specs_folder header block_count =
     let construct level_over_blocks tzop_count tzop_count_tx tzop_count_contract
         tzgas_used tzstorage_size tzcycle_snapshot tztime tzsolvetime ev_count =
       {
@@ -1295,9 +1268,9 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let store_folder =
+
+  let store_folder header block_count =
     let construct watched_nodes = {watched_nodes} in
     let acc0 =
       let open Trace_common.Parallel_folders in
@@ -1307,9 +1280,9 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       Trace_common.Parallel_folders.accumulate
       Trace_common.Parallel_folders.finalise
-  in
 
-  let gcs_folder =
+
+  let gcs_folder _header _block_count =
     let acc0 = [] in
     let accumulate acc ((_, _, gc_stats_opt) : block) =
       match gc_stats_opt with
@@ -1320,7 +1293,40 @@ let summarise' header block_count (block_seq : block Seq.t) =
       acc0
       accumulate
       List.rev
-  in
+
+(* Section 3/4 - Converter from stats_trace to summary *)
+
+(** Fold over [row_seq] and produce the summary.
+
+    {3 Parallel Folders}
+
+    Almost all entries in [t] require to independently fold over the rows of the
+    stats trace, but we want:
+
+    - not to fully load the trace in memory,
+    - not to reread the trace from disk once for each entry,
+    - this current file to be verbose and simple,
+    - to have fun with GADTs and avoid mutability.
+
+    All the boilerplate is hidden behind [Trace_common.Parallel_folders], a
+    datastructure that holds all folder functions, takes care of feeding the
+    rows to those folders, and preseves the types.
+
+    In the code below, [pf0] is the initial parallel folder, before the first
+    accumulation. Each [|+ ...] statement declares a [acc, accumulate, finalise]
+    triplet, i.e. a folder.
+
+    [val acc : acc] is the initial empty accumulation of a folder.
+
+    [val accumulate : acc -> row -> acc] needs to be folded over all rows of the
+    stats trace. Calling [Parallel_folders.accumulate pf row] will feed [row] to
+    every folders.
+
+    [val finalise : acc -> v] has to be applied on the final [acc] of a folder
+    in order to produce the final value of that folder - which value is meant to
+    be stored in [Trace_stats_summary.t]. Calling [Parallel_folders.finalise pf]
+    will finalise all folders and pass their result to [construct]. *)
+let summarise' header block_count (block_seq : block Seq.t) =
 
   let construct (elapsed_wall, elapsed_cpu, op_count) elapsed_wall_over_blocks
       elapsed_cpu_over_blocks span cpu_usage_variable pack tree index ocaml_gc disk
@@ -1360,8 +1366,8 @@ let summarise' header block_count (block_seq : block Seq.t) =
     |+ elapsed_cpu_over_blocks_folder header block_count
     |+ Span_folder.create header.initial_stats.timestamp_wall block_count
     |+ cpu_usage_folder header block_count
-    |+ pack_folder |+ tree_folder |+ index_folder |+ gc_folder |+ disk_folder
-    |+ rusage_folder |+ block_specs_folder |+ store_folder |+ gcs_folder |> seal
+    |+ pack_folder header block_count |+ tree_folder header block_count |+ index_folder header block_count |+ gc_folder header block_count |+ disk_folder header block_count
+    |+ rusage_folder header block_count |+ block_specs_folder header block_count |+ store_folder header block_count |+ gcs_folder header block_count |> seal
   in
   Seq.fold_left Trace_common.Parallel_folders.accumulate pf0 block_seq
   |> Trace_common.Parallel_folders.finalise
