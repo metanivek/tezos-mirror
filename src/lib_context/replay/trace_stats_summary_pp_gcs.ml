@@ -402,7 +402,35 @@ end
 
 let aggregate_gc_product summary_names summaries f =
   let summary_product f = List.map2 f summary_names summaries |> List.flatten in
-  let gc_product f sname summary = f sname (List.hd summary.gcs) in
+  let gc_product f sname summary =
+    match summary.gcs with
+    | [] ->
+        (* No GC in this summary. Let's ignore it *)
+        []
+    | hd :: _tl -> f sname hd
+  in
+  summary_product (gc_product f)
+
+let aggregate_main_activity_product summary_names summaries f =
+  let summary_product f = List.map2 f summary_names summaries |> List.flatten in
+  let gc_product f sname summary =
+    let main =
+      match summary.gcs with
+      | [] ->
+          (* No GC in this summary. Let's mock the main activity. *)
+          {
+            span = summary.span;
+            rusage = summary.rusage;
+            index = summary.index;
+            block_specs = summary.block_specs;
+            block_count = summary.block_count;
+            cpu_usage = summary.cpu_usage;
+          }
+      | (hd : gc) :: _tl -> hd.main_activity
+    in
+    f sname main
+  in
+
   summary_product (gc_product f)
 
 module Main_timings = struct
@@ -847,20 +875,12 @@ end
 
 module Main_activity = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let main : main_activity = gc.main_activity in
-    let gc = gc.gc_stats in
+    aggregate_main_activity_product summary_names summaries
+    @@ fun sname (main : main_activity) ->
     let total_duration = (Span.Map.find `Block main.span).cumu_duration.diff in
-    let total_finalise_duration =
-      gc.steps
-      |> List.filter (fun (stepname, _) -> is_step_finalise stepname)
-      |> List.map snd |> sum_duration
-      |> fun d -> d.wall
-    in
     let block_count = float_of_int main.block_count in
     [
       ([|sname; "total GC duration"|], total_duration);
-      ([|sname; "total finalise duration"|], total_finalise_duration);
       ([|sname; "%cpu"|], main.cpu_usage.mean);
       ( [|sname; "max commit duration"|],
         (Span.Map.find `Commit main.span).duration.max_value |> fst );
@@ -966,13 +986,13 @@ let pp_gcs ppf (summary_names, summaries) =
     {|-- Config / Setup --
 
 
--- Main thread during GC --
+-- Main thread during GC (IO stats do not count mmap) --
 %a
 
 -- File sizes (bytes) --
 %a
 
--- Worker stats --
+-- Worker stats (IO stats do not count mmap) --
 %a
 
 -- Main timings --
@@ -984,7 +1004,7 @@ let pp_gcs ppf (summary_names, summaries) =
 -- Worker rusage stats per step --
 %a
 
--- Worker disk stats per step --
+-- Worker disk stats per step (IO stats do not count mmap) --
 %a
 
 -- Worker pack_store stats per step --
@@ -1018,14 +1038,12 @@ let pp_gcs ppf (summary_names, summaries) =
 
 (*
 
-TODO: Average inputs GCs
-TODO: Merge diffs of irmin-stats for old file sizes
+TODO: Average all inputs GCs
+TODO: Update irmin version in order to have file sizes
 TODO: Read/write bytes par second in worker steps
 
-TODO: toposort for step names
-TODO: Number of GCs in the setup/config
-TODO: It must be possible to input a process that had 0 GCs...
 TODO: Need config and setup
-TODO: Add comment about the fact that RW opearions don't count mapping
+TODO: Number of GCs in the setup/config
+TODO: toposort for step names
 
 *)
