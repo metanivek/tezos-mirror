@@ -233,67 +233,17 @@ let add_ocaml_gc (x : Def.ocaml_gc) (y : Def.ocaml_gc) =
 
 let sum_ocaml_gc = reduce add_ocaml_gc
 
-(*
-
-| -- Config / Setup --
-| < Same as in normal pp >
-
--- Main thread during GC --
-|              summary name |      GC-run-1 |     GC-run-2 |
-|    number of GCs averaged |             1 |            1 |
-|                           | ------------- |------------- |
-|                      %cpu |          100% |          99% |
-|         total GC duration |
-|   total finalise duration |
-|       max commit duration |
-|      mean commit duration |
-|        mean find duration |
-|         max find duration |
-|                           |
-|                    Blocks |        10_000 | 10_500 (+5%) |
-|           TZ-Transactions |
-|             TZ-Operations |
-|                disk reads |
-|           disk bytes read |
-|               disk writes |
-|        disk bytes written |
-|                    minflt |
-|                    majflt |
-|                   inblock |
-|                   oublock |
-|                     nvcsw |
-|                    nivcsw |
-|                           |
-|                Blocks/sec |
-|       TZ-Transactions/sec |
-|         TZ-Operations/sec |
-|            disk reads/sec |
-|       disk bytes read/sec |
-|           disk writes/sec |
-|    disk bytes written/sec |
-|                minflt/sec |
-|                majflt/sec |
-|               inblock/sec |
-|               oublock/sec |
-|                 nvcsw/sec |
-|                nivcsw/sec |
-|                           |
-|              minflt/block |
-|              majflt/block |
-|             inblock/block |
-|             oublock/block |
-|               nvcsw/block |
-|              nivcsw/block |
-
-TODO: Number of GCs in the setup/config
-TODO: Merge diffs of irmin-stats for old file sizes
-TODO: Need main's stats during GC in the summary
-TODO: toposort for step names
-TODO: It must be possible to input a process that had 0 GCs...
-TODO: Average inputs GCs
-TODO: Need config and setup
-
-*)
+let is_step_finalise = function
+  | "worker startup" -> false
+  | "before finalise" -> false
+  | "worker wait" -> true
+  | "read output" -> true
+  | "copy latest newies" -> true
+  | "swap and purge" -> true
+  | "unlink" -> true
+  | x ->
+      Fmt.epr "Please edit code to classify: %S\n%!" x ;
+      assert false
 
 module Point = struct
   (** Multi dimensional key *)
@@ -456,20 +406,9 @@ let aggregate_gc_product summary_names summaries f =
   summary_product (gc_product f)
 
 module Main_timings = struct
-  let is_step_finalise = function
-    | "worker startup" -> false
-    | "before finalise" -> false
-    | "worker wait" -> true
-    | "read output" -> true
-    | "copy latest newies" -> true
-    | "swap and purge" -> true
-    | "unlink" -> true
-    | x ->
-        Fmt.epr "Please edit code to classify: %S\n%!" x ;
-        assert false
-
   let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let gc = gc.gc_stats in
     let total_duration = List.map (fun (_, d) -> d) gc.steps |> sum_duration in
     let finalise_duration =
       gc.steps
@@ -532,7 +471,8 @@ end
 
 module Worker_timings = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let gc = gc.gc_stats in
     let total_duration =
       List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
       |> sum_duration
@@ -593,7 +533,8 @@ end
 
 module Worker_stats = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let gc = gc.gc_stats in
     let w : Def.Gc.worker = gc.worker in
     let _, (last_worker_step : Def.Gc.step) = List.rev w.steps |> List.hd in
     let rusage =
@@ -791,7 +732,8 @@ module Worker_stats_per_step = struct
     ]
 
   let build_ff summary_names summaries which : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let gc = gc.gc_stats in
     List.map
       (fun (stepname, step) ->
         match which with
@@ -830,7 +772,8 @@ end
 
 module File_sizes = struct
   let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : Def.Gc.t) ->
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let gc = gc.gc_stats in
     let start0 = gc.before_suffix_start_offset |> Int63.to_float in
     let start1 = gc.after_suffix_start_offset |> Int63.to_float in
     let end0 = gc.before_suffix_end_offset |> Int63.to_float in
@@ -902,6 +845,121 @@ module File_sizes = struct
     Fmt.pf ppf "%s" s
 end
 
+module Main_activity = struct
+  let build_ff summary_names summaries : Point.Float.Frame.t =
+    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
+    let main : main_activity = gc.main_activity in
+    let gc = gc.gc_stats in
+    let total_duration = (Span.Map.find `Block main.span).cumu_duration.diff in
+    let total_finalise_duration =
+      gc.steps
+      |> List.filter (fun (stepname, _) -> is_step_finalise stepname)
+      |> List.map snd |> sum_duration
+      |> fun d -> d.wall
+    in
+    let block_count = float_of_int main.block_count in
+    [
+      ([|sname; "total GC duration"|], total_duration);
+      ([|sname; "total finalise duration"|], total_finalise_duration);
+      ([|sname; "%cpu"|], main.cpu_usage.mean);
+      ( [|sname; "max commit duration"|],
+        (Span.Map.find `Commit main.span).duration.max_value |> fst );
+      ( [|sname; "mean commit duration"|],
+        (Span.Map.find `Commit main.span).duration.mean );
+      ( [|sname; "max find duration"|],
+        (Span.Map.find (`Frequent_op `Find) main.span).duration.max_value |> fst
+      );
+      ( [|sname; "mean find duration"|],
+        (Span.Map.find (`Frequent_op `Find) main.span).duration.mean );
+      ([|sname; "Blocks"|], block_count);
+      ([|sname; "TZ-Transactions"|], main.block_specs.tzop_count_tx.value.diff);
+      ([|sname; "TZ-Operations"|], main.block_specs.tzop_count.value.diff);
+      ([|sname; "disk reads"|], main.index.nb_reads.value_after_commit.diff);
+      ( [|sname; "disk bytes read"|],
+        main.index.bytes_read.value_after_commit.diff );
+      ([|sname; "disk writes"|], main.index.nb_writes.value_after_commit.diff);
+      ( [|sname; "disk bytes write"|],
+        main.index.bytes_written.value_after_commit.diff );
+      ([|sname; "minflt"|], main.rusage.minflt.value_after_commit.diff);
+      ([|sname; "majflt"|], main.rusage.majflt.value_after_commit.diff);
+      ([|sname; "inblock"|], main.rusage.inblock.value_after_commit.diff);
+      ([|sname; "oublock"|], main.rusage.oublock.value_after_commit.diff);
+      ([|sname; "nvcsw"|], main.rusage.nvcsw.value_after_commit.diff);
+      ([|sname; "nivcsw"|], main.rusage.nivcsw.value_after_commit.diff);
+      ([|sname; "Blocks/sec"|], float_of_int main.block_count /. total_duration);
+      ( [|sname; "TZ-Transactions/sec"|],
+        main.block_specs.tzop_count_tx.value.diff /. total_duration );
+      ( [|sname; "TZ-Operations/sec"|],
+        main.block_specs.tzop_count.value.diff /. total_duration );
+      ( [|sname; "disk reads/sec"|],
+        main.index.nb_reads.value_after_commit.diff /. total_duration );
+      ( [|sname; "disk bytes read/sec"|],
+        main.index.bytes_read.value_after_commit.diff /. total_duration );
+      ( [|sname; "disk writes/sec"|],
+        main.index.nb_writes.value_after_commit.diff /. total_duration );
+      ( [|sname; "disk bytes write/sec"|],
+        main.index.bytes_written.value_after_commit.diff /. total_duration );
+      ( [|sname; "minflt/sec"|],
+        main.rusage.minflt.value_after_commit.diff /. total_duration );
+      ( [|sname; "majflt/sec"|],
+        main.rusage.majflt.value_after_commit.diff /. total_duration );
+      ( [|sname; "inblock/sec"|],
+        main.rusage.inblock.value_after_commit.diff /. total_duration );
+      ( [|sname; "oublock/sec"|],
+        main.rusage.oublock.value_after_commit.diff /. total_duration );
+      ( [|sname; "nvcsw/sec"|],
+        main.rusage.nvcsw.value_after_commit.diff /. total_duration );
+      ( [|sname; "nivcsw/sec"|],
+        main.rusage.nivcsw.value_after_commit.diff /. total_duration );
+      ( [|sname; "minflt/block"|],
+        main.rusage.minflt.value_after_commit.diff /. block_count );
+      ( [|sname; "majflt/block"|],
+        main.rusage.majflt.value_after_commit.diff /. block_count );
+      ( [|sname; "inblock/block"|],
+        main.rusage.inblock.value_after_commit.diff /. block_count );
+      ( [|sname; "oublock/block"|],
+        main.rusage.oublock.value_after_commit.diff /. block_count );
+      ( [|sname; "nvcsw/block"|],
+        main.rusage.nvcsw.value_after_commit.diff /. block_count );
+      ( [|sname; "nivcsw/block"|],
+        main.rusage.nivcsw.value_after_commit.diff /. block_count );
+    ]
+
+  let pp ppf (summary_names, summaries) =
+    let ff = build_ff summary_names summaries in
+    let x =
+      let group_of_key k = [k.(1)] in
+      let formatter_of_group g occurences =
+        if List.exists (fun s -> String.contains s '%') g || List.mem "share" g
+        then Utils.pp_percent
+        else if List.exists (String.ends_with ~suffix:"duration") g then
+          Utils.create_pp_seconds occurences
+        else Utils.create_pp_real occurences
+      in
+      Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
+    in
+    let y =
+      let keep_blank = Array.exists (fun s -> String.contains s '%') in
+      let group_of_key k = [k.(1)] in
+      Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
+    in
+
+    let sf = Point.String.Frame.concat x y in
+    let s =
+      let should_put_space_before_row = function
+        | ("Blocks" | "Blocks/sec" | "minflt/block") :: _ -> true
+        | _ -> false
+      in
+      Point.String.Frame.to_printbox
+        sf
+        ~col_axes:[0]
+        ~row_axes:[1]
+        ~should_put_space_before_row
+      |> PrintBox_text.to_string
+    in
+    Fmt.pf ppf "%s" s
+end
+
 let pp_gcs ppf (summary_names, summaries) =
   Format.fprintf
     ppf
@@ -909,7 +967,7 @@ let pp_gcs ppf (summary_names, summaries) =
 
 
 -- Main thread during GC --
-
+%a
 
 -- File sizes (bytes) --
 %a
@@ -937,6 +995,8 @@ let pp_gcs ppf (summary_names, summaries) =
 
 -- Worker ocaml_gc stats per step --
 %a|}
+    Main_activity.pp
+    (summary_names, summaries)
     File_sizes.pp
     (summary_names, summaries)
     Worker_stats.pp
@@ -955,3 +1015,17 @@ let pp_gcs ppf (summary_names, summaries) =
     (summary_names, summaries, `Inode)
     Worker_stats_per_step.pp
     (summary_names, summaries, `Ocaml_gc)
+
+(*
+
+TODO: Average inputs GCs
+TODO: Merge diffs of irmin-stats for old file sizes
+TODO: Read/write bytes par second in worker steps
+
+TODO: toposort for step names
+TODO: Number of GCs in the setup/config
+TODO: It must be possible to input a process that had 0 GCs...
+TODO: Need config and setup
+TODO: Add comment about the fact that RW opearions don't count mapping
+
+*)

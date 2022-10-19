@@ -48,7 +48,9 @@ type last_row =
   | `Commit of Def.Commit_op.payload
   | `Dump_context of Def.Stats_op.payload ]
 
-type block = initial_row list * last_row * Def.Gc.t option
+type gc_event = [`Start | `End of Def.Gc.t]
+
+type block = initial_row list * last_row * gc_event list
 
 (* Section 1/4 - Type of a summary. *)
 
@@ -419,6 +421,18 @@ type block_specs = {
 }
 [@@deriving repr]
 
+type main_activity = {
+  span : Span.map;
+  rusage : rusage;
+  index : index;
+  block_specs : block_specs;
+  cpu_usage : Vs.t;
+  block_count : int;
+}
+[@@deriving repr]
+
+type gc = {gc_stats : Def.Gc.t; main_activity : main_activity} [@@deriving repr]
+
 (** The type of a summary *)
 type t = {
   summary_timeofday : float;
@@ -446,7 +460,7 @@ type t = {
   rusage : rusage;
   block_specs : block_specs;
   store : store;
-  gcs : Def.Gc.t list;
+  gcs : gc list; (* gcs : Def.Gc.t list; *)
 }
 [@@deriving repr]
 
@@ -659,8 +673,8 @@ module Bag_stat_folder = struct
   }
 
   let create_acc ?(is_linearly_increasing = true)
-      ?(should_cumulate_value = false) header block_count value_of_bag =
-    let value_in_header = value_of_bag header.Def.initial_stats in
+      ?(should_cumulate_value = false) initial_bag block_count value_of_bag =
+    let value_just_before = value_of_bag initial_bag in
     let f =
       if is_linearly_increasing then create_vs_exact block_count
       else create_vs_smooth block_count
@@ -670,7 +684,7 @@ module Bag_stat_folder = struct
       (* Consider the header to virtually follow a commit. That way the
          [value_after_commit] stat will contain a point before and after the
          replay. *)
-      f [value_in_header]
+      f [value_just_before]
     in
     let diff_per_block = create_vs_smooth block_count [] in
     let diff_per_buildup = create_vs_smooth block_count [] in
@@ -681,7 +695,7 @@ module Bag_stat_folder = struct
       diff_per_block;
       diff_per_buildup;
       diff_per_commit;
-      prev_value = value_in_header;
+      prev_value = value_just_before;
       value_of_bag;
       should_cumulate_value;
     }
@@ -727,13 +741,13 @@ module Bag_stat_folder = struct
       diff_per_commit = Vs.finalise acc.diff_per_commit;
     }
 
-  let create ?should_cumulate_value ?is_linearly_increasing header block_count
-      value_of_bag =
+  let create ?should_cumulate_value ?is_linearly_increasing initial_bag
+      block_count value_of_bag =
     let acc0 =
       create_acc
         ?should_cumulate_value
         ?is_linearly_increasing
-        header
+        initial_bag
         block_count
         value_of_bag
     in
@@ -752,10 +766,10 @@ module Once_per_commit_folder = struct
   }
 
   let create_acc ?(is_linearly_increasing = true)
-      ?(should_cumulate_value = false) header block_count ?value_of_header
+      ?(should_cumulate_value = false) block_count ?value_of_header
       value_of_commit =
     let value_in_header =
-      match value_of_header with None -> Float.nan | Some f -> f header
+      match value_of_header with None -> Float.nan | Some x -> x
     in
     let value =
       if is_linearly_increasing then
@@ -789,13 +803,12 @@ module Once_per_commit_folder = struct
       diff_per_block = Vs.finalise acc.diff_per_block;
     }
 
-  let create ?should_cumulate_value ?is_linearly_increasing header block_count
+  let create ?should_cumulate_value ?is_linearly_increasing block_count
       ?value_of_header value_of_commit =
     let acc0 =
       create_acc
         ?should_cumulate_value
         ?is_linearly_increasing
-        header
         block_count
         ?value_of_header
         value_of_commit
@@ -803,10 +816,10 @@ module Once_per_commit_folder = struct
     Trace_common.Parallel_folders.folder acc0 accumulate finalise
 end
 
-let watched_nodes_folder header block_count =
+let watched_nodes_folder _header block_count =
   let acc0 =
     Stdlib.List.init (List.length Def.watched_nodes) (fun i ->
-        Once_per_commit_folder.create_acc header block_count (fun pl_opt ->
+        Once_per_commit_folder.create_acc block_count (fun pl_opt ->
             match pl_opt with
             | None -> Float.nan
             | Some (pl : Def.Commit_op.payload) ->
@@ -886,16 +899,10 @@ let merge_durations_folder =
 
 (** Build a resampled curve of block levels. All the values are nan if the block
     levels are missing from the stat trace. *)
-let level_over_blocks_folder header block_count =
-  let open Def in
+let level_over_blocks_folder block_level_before block_count =
   let len0 = block_count + 1 in
   let len1 = Conf.curves_sample_count in
-  let v0 =
-    match header.config.setup with
-    | `Play _ -> Float.nan
-    | `Replay {initial_block_level = Some v; _} -> float_of_int v
-    | `Replay {initial_block_level = None; _} -> 0.
-  in
+  let v0 = block_level_before in
   let acc0 = Utils.Resample.create_acc `Interpolate ~len0 ~len1 ~v00:v0 in
   let accumulate acc ((initial_rows, last_row, _) : block) =
     let level =
@@ -919,11 +926,11 @@ let level_over_blocks_folder header block_count =
   let finalise = Utils.Resample.finalise in
   Trace_common.Parallel_folders.folder acc0 accumulate finalise
 
-let cpu_usage_folder header block_count =
+let cpu_usage_folder initial_bag block_count =
   let acc0 =
     let vs = create_vs_smooth block_count [] in
-    ( header.Def.initial_stats.timestamp_wall,
-      header.Def.initial_stats.timestamp_cpu,
+    ( initial_bag.Def.timestamp_wall,
+      initial_bag.Def.timestamp_cpu,
       vs )
   in
   let accumulate (prev_wall, prev_cpu, vs) ((_, last_row, _) : block) =
@@ -969,12 +976,12 @@ let misc_stats_folder header =
   in
   Trace_common.Parallel_folders.folder acc0 accumulate finalise
 
-let bs_folder_of_bag_getter header block_count ?should_cumulate_value
+let bs_folder_of_bag_getter initial_bag block_count ?should_cumulate_value
     ?is_linearly_increasing value_of_bag =
   Bag_stat_folder.create
     ?should_cumulate_value
     ?is_linearly_increasing
-    header
+    initial_bag
     block_count
     value_of_bag
 
@@ -1008,7 +1015,7 @@ let pack_folder header block_count =
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi = float_of_int in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter header.Def.initial_stats block_count in
     open_ construct
     |+ x (fun bag -> ofi bag.Def.pack.finds_total)
     |+ x (fun bag -> ofi bag.Def.pack.finds_from_staging)
@@ -1056,7 +1063,7 @@ let tree_folder header block_count =
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi = float_of_int in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter header.Def.initial_stats block_count in
     open_ construct
     |+ x (fun bag -> ofi bag.Def.tree.contents_hash)
     |+ x (fun bag -> ofi bag.Def.tree.contents_find)
@@ -1077,7 +1084,7 @@ let tree_folder header block_count =
     Trace_common.Parallel_folders.accumulate
     Trace_common.Parallel_folders.finalise
 
-let index_folder header block_count =
+let index_folder initial_bag block_count =
   let construct bytes_read nb_reads bytes_written nb_writes bytes_both nb_both
       nb_merge cumu_data_bytes merge_durations =
     {
@@ -1095,7 +1102,7 @@ let index_folder header block_count =
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi = float_of_int in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter initial_bag block_count in
     open_ construct
     |+ x (fun bag -> ofi bag.Def.index.bytes_read)
     |+ x (fun bag -> ofi bag.Def.index.nb_reads)
@@ -1122,7 +1129,7 @@ let index_folder header block_count =
     Trace_common.Parallel_folders.accumulate
     Trace_common.Parallel_folders.finalise
 
-let gc_folder header block_count =
+let ocaml_gc_folder header block_count =
   let construct minor_words promoted_words major_words minor_collections
       major_collections compactions major_heap_bytes major_heap_top_bytes =
     {
@@ -1139,7 +1146,7 @@ let gc_folder header block_count =
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi = float_of_int in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter header.Def.initial_stats block_count in
     let ws = header.Def.word_size / 8 |> float_of_int in
     open_ construct
     |+ x (fun bag -> bag.Def.ocaml_gc.minor_words)
@@ -1165,7 +1172,7 @@ let disk_folder header block_count =
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi64 = Int64.to_float in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter header.Def.initial_stats block_count in
     open_ construct
     |+ x (fun bag -> ofi64 bag.Def.disk.index_data)
     |+ x ~is_linearly_increasing:false (fun bag -> ofi64 bag.Def.disk.index_log)
@@ -1182,14 +1189,14 @@ let disk_folder header block_count =
     Trace_common.Parallel_folders.accumulate
     Trace_common.Parallel_folders.finalise
 
-let rusage_folder header block_count =
+let rusage_folder initial_bag block_count =
   let construct utime stime maxrss minflt majflt inblock oublock nvcsw nivcsw =
     {utime; stime; maxrss; minflt; majflt; inblock; oublock; nvcsw; nivcsw}
   in
   let acc0 =
     let open Trace_common.Parallel_folders in
     let ofi64 = Int64.to_float in
-    let x = bs_folder_of_bag_getter header block_count in
+    let x = bs_folder_of_bag_getter initial_bag block_count in
     open_ construct
     |+ x (fun bag -> bag.Def.rusage.utime)
     |+ x (fun bag -> bag.Def.rusage.stime)
@@ -1207,7 +1214,7 @@ let rusage_folder header block_count =
     Trace_common.Parallel_folders.accumulate
     Trace_common.Parallel_folders.finalise
 
-let block_specs_folder header block_count =
+let block_specs_folder block_level_before block_count =
   let construct level_over_blocks tzop_count tzop_count_tx tzop_count_contract
       tzgas_used tzstorage_size tzcycle_snapshot tztime tzsolvetime ev_count =
     {
@@ -1228,9 +1235,8 @@ let block_specs_folder header block_count =
     let f of_specs =
       Once_per_commit_folder.create
         ~should_cumulate_value:true
-        header
         block_count
-        ~value_of_header:(Fun.const 0.)
+        ~value_of_header:0.
         (fun pl_opt ->
           match pl_opt with
           | Some Def.Commit_op.{specs = Some specs; _} ->
@@ -1238,7 +1244,7 @@ let block_specs_folder header block_count =
           | _ -> Float.nan)
     in
     open_ construct
-    |+ level_over_blocks_folder header block_count
+    |+ level_over_blocks_folder block_level_before block_count
     |+ f (fun specs -> specs.tzop_count)
     |+ f (fun specs -> specs.tzop_count_tx)
     |+ f (fun specs -> specs.tzop_count_contract)
@@ -1266,12 +1272,79 @@ let store_folder header block_count =
     Trace_common.Parallel_folders.accumulate
     Trace_common.Parallel_folders.finalise
 
-let gcs_folder _header _block_count =
-  let acc0 = [] in
-  let accumulate acc ((_, _, gc_stats_opt) : block) =
-    match gc_stats_opt with None -> acc | Some s -> s :: acc
-  in
-  Trace_common.Parallel_folders.folder acc0 accumulate List.rev
+module Gcs_folder = struct
+  type main_acc = {initial_bag : Def.bag_of_stats; rev_blocks : block list}
+
+  type acc = {
+    state : [`Looking_for_start | `Looking_for_end of main_acc];
+    rev_gcs : gc list;
+  }
+
+  let compute_main_activity main_acc =
+    let blocks = List.rev main_acc.rev_blocks in
+    let bag = main_acc.initial_bag in
+    let block_count = List.length blocks in
+    assert (block_count > 0) ;
+    let block_level_before =
+      match blocks with
+      | [] -> assert false
+      | (_, `Commit {specs = Some specs; _}, _) :: _ ->
+          specs.level - 1 |> float_of_int
+      | _ -> Float.nan
+    in
+    let construct span rusage index block_specs cpu_usage =
+      {span; rusage; index; block_specs; block_count; cpu_usage}
+    in
+    let pf0 =
+      let open Trace_common.Parallel_folders in
+      open_ construct
+      |+ Span_folder.create bag.timestamp_wall block_count
+      |+ rusage_folder bag block_count
+      |+ index_folder bag block_count
+      |+ block_specs_folder block_level_before block_count
+      |+ cpu_usage_folder bag  block_count
+      |> seal
+    in
+    List.fold_left Trace_common.Parallel_folders.accumulate pf0 blocks
+    |> Trace_common.Parallel_folders.finalise
+
+  let on_gc_event ((_, last_op, _) : block) acc ev =
+    match (acc.state, ev) with
+    | `Looking_for_start, `Start ->
+        let initial_bag =
+          Fmt.epr "Gc `Start\n%!" ;
+          match last_op with
+          | `Commit pl -> pl.after
+          | `Close pl -> pl.after
+          | `Dump_context _ -> assert false
+        in
+        let main_acc = {initial_bag; rev_blocks = []} in
+        {acc with state = `Looking_for_end main_acc}
+    | `Looking_for_end main_acc, `End gc_stats ->
+        let main_activity = compute_main_activity main_acc in
+        let s = {gc_stats; main_activity} in
+        {rev_gcs = s :: acc.rev_gcs; state = `Looking_for_start}
+    | _ -> assert false
+
+  let accumulate acc ((_, _, gc_events) as block : block) =
+    let acc =
+      match acc.state with
+      | `Looking_for_start -> acc
+      | `Looking_for_end main_acc ->
+          let state =
+            `Looking_for_end
+              {main_acc with rev_blocks = block :: main_acc.rev_blocks}
+          in
+          {acc with state}
+    in
+    List.fold_left (on_gc_event block) acc gc_events
+
+  let finalise acc = List.rev acc.rev_gcs
+
+  let create _header _block_count =
+    let acc0 = {state = `Looking_for_start; rev_gcs = []} in
+    Trace_common.Parallel_folders.folder acc0 accumulate finalise
+end
 
 (* Section 3/4 - Converter from stats_trace to summary *)
 
@@ -1306,6 +1379,12 @@ let gcs_folder _header _block_count =
     be stored in [Trace_stats_summary.t]. Calling [Parallel_folders.finalise pf]
     will finalise all folders and pass their result to [construct]. *)
 let summarise' header block_count (block_seq : block Seq.t) =
+  let block_level_before =
+    match header.Def.config.setup with
+    | `Play _ -> Float.nan
+    | `Replay {initial_block_level = Some v; _} -> float_of_int v
+    | `Replay {initial_block_level = None; _} -> 0.
+  in
   let construct (elapsed_wall, elapsed_cpu, op_count) elapsed_wall_over_blocks
       elapsed_cpu_over_blocks span cpu_usage_variable pack tree index ocaml_gc
       disk rusage block_specs store gcs =
@@ -1336,23 +1415,22 @@ let summarise' header block_count (block_seq : block Seq.t) =
       gcs;
     }
   in
-
   let pf0 =
     let open Trace_common.Parallel_folders in
     open_ construct |+ misc_stats_folder header
     |+ elapsed_wall_over_blocks_folder header block_count
     |+ elapsed_cpu_over_blocks_folder header block_count
     |+ Span_folder.create header.initial_stats.timestamp_wall block_count
-    |+ cpu_usage_folder header block_count
+    |+ cpu_usage_folder header.initial_stats block_count
     |+ pack_folder header block_count
     |+ tree_folder header block_count
-    |+ index_folder header block_count
-    |+ gc_folder header block_count
+    |+ index_folder header.initial_stats block_count
+    |+ ocaml_gc_folder header block_count
     |+ disk_folder header block_count
-    |+ rusage_folder header block_count
-    |+ block_specs_folder header block_count
+    |+ rusage_folder header.initial_stats block_count
+    |+ block_specs_folder block_level_before block_count
     |+ store_folder header block_count
-    |+ gcs_folder header block_count
+    |+ Gcs_folder.create header block_count
     |> seal
   in
   Seq.fold_left Trace_common.Parallel_folders.accumulate pf0 block_seq
@@ -1362,15 +1440,16 @@ let summarise' header block_count (block_seq : block Seq.t) =
 let block_seq_when_node_run ~ends_with_close ~block_count row_seq : block Seq.t
     =
   let commit_count = ref 0 in
-  let rec aux l ~gc_stats (row_seq : _ Seq.t) =
+  let rec aux l ~gc_events (row_seq : _ Seq.t) =
     let saw_all_commits = !commit_count = block_count in
     match (ends_with_close, saw_all_commits) with
     | true, true -> (
         match row_seq () with
         | Seq.Cons (`Gc_finalised stats, rest) ->
-            aux l ~gc_stats:(Some stats) rest
+            let gc_events = `End stats :: gc_events in
+            aux l ~gc_events rest
         | Seq.Cons ((`Close _ as op), _) ->
-            Seq.Cons ((List.rev l, op, gc_stats), Seq.empty)
+            Seq.Cons ((List.rev l, op, gc_events), Seq.empty)
         | _ -> assert false)
     | false, true -> Seq.Nil
     | (true | false), false -> (
@@ -1383,13 +1462,17 @@ let block_seq_when_node_run ~ends_with_close ~block_count row_seq : block Seq.t
             | `Commit _ as op ->
                 incr commit_count ;
                 Seq.Cons
-                  ( (List.rev l, op, gc_stats),
-                    fun () -> aux [] ~gc_stats:None rest )
-            | `Frequent_op _ as op -> aux (op :: l) ~gc_stats rest
-            | `Gc_start -> aux l ~gc_stats rest
-            | `Gc_finalised stats -> aux l ~gc_stats:(Some stats) rest))
+                  ( (List.rev l, op, gc_events),
+                    fun () -> aux [] ~gc_events:[] rest )
+            | `Frequent_op _ as op -> aux (op :: l) ~gc_events rest
+            | `Gc_start ->
+                let gc_events = `Start :: gc_events in
+                aux l ~gc_events rest
+            | `Gc_finalised stats ->
+                let gc_events = `End stats :: gc_events in
+                aux l ~gc_events rest))
   in
-  fun () -> aux [] ~gc_stats:None row_seq
+  fun () -> aux [] ~gc_events:[] row_seq
 
 (** Groups the trace's rows into blocks, when this trace corresponds to a
     snapshot export *)
@@ -1398,7 +1481,7 @@ let block_seq_when_snapshot_export row_seq : block Seq.t =
     match row_seq () with
     | Seq.Nil -> Fmt.failwith "could not find Dump_context"
     | Seq.Cons ((`Dump_context _ as row), _) ->
-        Seq.Cons (([], row, None), Seq.empty)
+        Seq.Cons (([], row, []), Seq.empty)
     | Seq.Cons (_, rest) -> aux rest
   in
   fun () -> aux row_seq
