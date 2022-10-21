@@ -61,18 +61,18 @@ let pp paths named_paths cols_opt =
     invalid_arg "manage_stats.exe pp: At least one path should be provided" ;
   pp name_per_path paths cols_opt
 
-let pp_gcs name_per_path paths =
+let pp_gc name_per_path paths =
   let summaries = List.map summary_of_path paths in
-  Fmt.pr "%a\n" (Trace_stats_summary_pp_gcs.pp_gcs) (name_per_path, summaries, `All)
+  Fmt.pr "%a\n" (Trace_stats_summary_pp_gc.pp_gc) (name_per_path, summaries, `All)
 
-let pp_gcs paths named_paths =
+let pp_gc paths named_paths =
   let (name_per_path, paths) =
     List.mapi (fun i v -> (string_of_int i, v)) paths @ named_paths
     |> List.split
   in
   if List.length paths = 0 then
     invalid_arg "manage_stats.exe pp: At least one path should be provided" ;
-  pp_gcs name_per_path paths
+  pp_gc name_per_path paths
 
 open Cmdliner
 
@@ -120,8 +120,8 @@ let term_pp =
   in
   Term.(const pp $ arg_indexed_files $ arg_named_files $ arg_columns)
 
-let term_pp_gcs =
-  Term.(const pp_gcs $ arg_indexed_files $ arg_named_files)
+let term_pp_gc =
+  Term.(const pp_gc $ arg_indexed_files $ arg_named_files)
 
 let () =
   let man = [] in
@@ -163,22 +163,22 @@ let () =
 
   let man =
     [
-      `P "Pretty print GCs in summaries (json).";
+      `P "Pretty print Gc in summaries (json).";
       `P
-        "When a single file is provided, the stats for its GCs are shown.";
+        "When a single file is provided, the stats for its Gc are shown.";
       `P
-        "When multiple files are provided, the stats for their GCs are shown in a way that makes comparisons between files easy.";
+        "When multiple files are provided, the stats for their Gc are shown in a way that makes comparisons between files easy.";
       `S "EXAMPLES";
-      `P "manage_stats.exe pp-gcs run0.json";
+      `P "manage_stats.exe pp-gc run0.json";
       `Noblank;
-      `P "manage_stats.exe pp-gcs run0.json run2.json run3.json";
+      `P "manage_stats.exe pp-gc run0.json run2.json run3.json";
       `Noblank;
-      `P "manage_stats.exe pp-gcs -f r0,run0.json -f r1,run1.json";
+      `P "manage_stats.exe pp-gc -f r0,run0.json -f r1,run1.json";
     ]
   in
-  let l = deprecated_info ~man ~doc:"Comparative Pretty Printing of GCs" "pp-gcs" in
+  let l = deprecated_info ~man ~doc:"Comparative Pretty Printing of Gc" "pp-gc" in
 
   deprecated_exit
   @@ deprecated_eval_choice
        (term_summarise, i)
-       [(term_summarise, j); (term_pp, k); (term_pp_gcs, l)]
+       [(term_summarise, j); (term_pp, k); (term_pp_gc, l)]

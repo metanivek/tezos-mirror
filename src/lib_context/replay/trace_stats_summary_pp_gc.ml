@@ -1074,7 +1074,7 @@ module Main_activity = struct
     Fmt.pf ppf "%s" s
 end
 
-let pp_gcs ppf (summary_names, summaries, which_gcs) =
+let pp_gc ppf (summary_names, summaries, which_gcs) =
   let setup =
     Trace_stats_summary_pp.Table0.box_of_summaries_config
       summary_names

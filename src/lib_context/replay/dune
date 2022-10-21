@@ -24,7 +24,7 @@
 ; trace_stats_summary_cb
 trace_stats_summary_conf
 trace_stats_summary_pp
-trace_stats_summary_pp_gcs
+trace_stats_summary_pp_gc
 trace_stats_summary_utils
 
 )
