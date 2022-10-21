@@ -785,11 +785,16 @@ module Worker_stats_per_step = struct
   let disk_ff_of_worker_step sname stepname (step : Def.Gc.step) =
     let index = step.index in
     let i = float_of_int in
+    let j int = float_of_int int /. step.duration.wall in
     [
-      ([|sname; stepname; "disk reads"|], index.nb_reads |> i);
-      ([|sname; stepname; "disk bytes read"|], index.bytes_read |> i);
-      ([|sname; stepname; "disk writes"|], index.nb_writes |> i);
-      ([|sname; stepname; "disk bytes written"|], index.bytes_written |> i);
+      ([|sname; stepname; "reads"|], index.nb_reads |> i);
+      ([|sname; stepname; "bytes read"|], index.bytes_read |> i);
+      ([|sname; stepname; "writes"|], index.nb_writes |> i);
+      ([|sname; stepname; "bytes written"|], index.bytes_written |> i);
+      ([|sname; stepname; "reads/sec"|], index.nb_reads |> j );
+      ([|sname; stepname; "bytes read/sec"|], index.bytes_read |> j);
+      ([|sname; stepname; "writes/sec"|], index.nb_writes |> j);
+      ([|sname; stepname; "bytes written/sec"|], index.bytes_written |> j);
     ]
 
   let pack_store_ff_of_worker_step sname stepname (step : Def.Gc.step) =
@@ -895,7 +900,7 @@ module File_sizes = struct
       |> Option.map Int63.to_float
       |> Option.value ~default:Float.nan
     in
-    let tot0 = get "old prefix" +. suffix0 +. get "old mapping" in
+    let tot0 = get "old_prefix" +. suffix0 +. get "old_mapping" in
     let tot1 = get "prefix" +. suffix1 +. get "mapping" in
     let first_loop, extra_loops =
       match gc.worker.suffix_transfers with
@@ -907,14 +912,15 @@ module File_sizes = struct
     [
       ([|sname; "former suffix file size"|], suffix0);
       ([|sname; "new suffix file size"|], suffix1);
-      ([|sname; "former prefix file size"|], get "old prefix");
+      ([|sname; "former prefix file size"|], get "old_prefix");
       ([|sname; "new prefix file size"|], get "prefix");
-      ([|sname; "former mapping file size"|], get "old mapping");
+      ([|sname; "former mapping file size"|], get "old_mapping");
       ([|sname; "new mapping file size"|], get "mapping");
       ([|sname; "reachable file size"|], get "reachable");
       ([|sname; "sorted file size"|], get "sorted");
       ([|sname; "suffix start offset progress"|], start1 -. start0);
       ([|sname; "total file sizes before GC"|], tot0);
+      ([|sname; "total file sizes before GC + newies"|], tot0 +. (end1 -. end0));
       ([|sname; "total file sizes after GC"|], tot1);
       ([|sname; "total file sizes before unlink"|], tot0 +. tot1);
       ([|sname; "suffix oldies in first worker loop"|], end0 -. start1);
@@ -988,7 +994,7 @@ module Main_activity = struct
       ( [|sname; "disk bytes read"|],
         main.index.bytes_read.value_after_commit.diff );
       ([|sname; "disk writes"|], main.index.nb_writes.value_after_commit.diff);
-      ( [|sname; "disk bytes write"|],
+      ( [|sname; "disk bytes written"|],
         main.index.bytes_written.value_after_commit.diff );
       ([|sname; "minflt"|], main.rusage.minflt.value_after_commit.diff);
       ([|sname; "majflt"|], main.rusage.majflt.value_after_commit.diff);
@@ -1093,28 +1099,31 @@ let pp_gc ppf (summary_names, summaries, which_gcs) =
 -- File sizes (bytes) --
 %a
 
+Hint: [total file sizes before GC + newies] vs [total file sizes after GC] gives
+      a sense of how much the GC removed.
+
 -- Worker stats (IO stats do not count mmap) --
 %a
 
--- Main timings --
+-- Main's timings --
 %a
 
--- Worker timings --
+-- Worker's timings --
 %a
 
--- Worker rusage stats per step --
+-- Worker's rusage stats per step --
 %a
 
--- Worker disk stats per step (IO stats do not count mmap) --
+-- Worker's disk stats per step (IO stats do not count mmap) --
 %a
 
--- Worker pack_store stats per step --
+-- Worker's pack_store stats per step --
 %a
 
--- Worker inode stats per step --
+-- Worker's inode stats per step --
 %a
 
--- Worker ocaml_gc stats per step --
+-- Worker's ocaml_gc stats per step --
 %a|}
     setup
     Main_activity.pp
@@ -1137,10 +1146,3 @@ let pp_gc ppf (summary_names, summaries, which_gcs) =
     (summary_names, summaries, which_gcs, `Inode)
     Worker_stats_per_step.pp
     (summary_names, summaries, which_gcs, `Ocaml_gc)
-
-(*
-
-TODO: Update irmin version in order to have file sizes
-TODO: Read/write bytes par second in worker steps
-
-*)
