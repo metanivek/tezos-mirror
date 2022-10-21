@@ -1312,7 +1312,6 @@ module Gcs_folder = struct
     match (acc.state, ev) with
     | `Looking_for_start, `Start ->
         let initial_bag =
-          Fmt.epr "Gc `Start\n%!" ;
           match last_op with
           | `Commit pl -> pl.after
           | `Close pl -> pl.after

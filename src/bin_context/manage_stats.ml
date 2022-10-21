@@ -63,7 +63,7 @@ let pp paths named_paths cols_opt =
 
 let pp_gcs name_per_path paths =
   let summaries = List.map summary_of_path paths in
-  Fmt.pr "%a\n" (Trace_stats_summary_pp_gcs.pp_gcs) (name_per_path, summaries)
+  Fmt.pr "%a\n" (Trace_stats_summary_pp_gcs.pp_gcs) (name_per_path, summaries, `All)
 
 let pp_gcs paths named_paths =
   let (name_per_path, paths) =

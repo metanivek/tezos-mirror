@@ -141,6 +141,7 @@ module Table0 = struct
       `Word_size;
       `Timeofday;
       `Store_type;
+      `Irmin_pack_gc_count;
       `Gc_minor_heap_size;
       `Gc_major_heap_increment;
       `Gc_space_overhead;
@@ -166,6 +167,7 @@ module Table0 = struct
     | `Word_size -> "word size"
     | `Timeofday -> "Start Time"
     | `Store_type -> "Store Type"
+    | `Irmin_pack_gc_count -> "irmin-pack GC count"
     | `Gc_minor_heap_size -> "gc.minor_heap_size"
     | `Gc_major_heap_increment -> "gc.major_heap_increment"
     | `Gc_space_overhead -> "gc.space_overhead"
@@ -231,10 +233,13 @@ module Table0 = struct
         | `Pack -> "pack"
         | `Pack_layered -> "pack-layered"
         | `Pack_mem -> "pack-mem")
-    | `Gc_minor_heap_size -> string_of_int s.header.ocaml_gc_control.minor_heap_size
+    | `Irmin_pack_gc_count -> (List.length s.gcs |> string_of_int)
+    | `Gc_minor_heap_size ->
+        string_of_int s.header.ocaml_gc_control.minor_heap_size
     | `Gc_major_heap_increment ->
         string_of_int s.header.ocaml_gc_control.major_heap_increment
-    | `Gc_space_overhead -> string_of_int s.header.ocaml_gc_control.space_overhead
+    | `Gc_space_overhead ->
+        string_of_int s.header.ocaml_gc_control.space_overhead
     | `Gc_verbose -> string_of_int s.header.ocaml_gc_control.verbose
     | `Gc_max_overhead -> string_of_int s.header.ocaml_gc_control.max_overhead
     | `Gc_stack_limit -> string_of_int s.header.ocaml_gc_control.stack_limit
@@ -289,7 +294,7 @@ module Table0 = struct
   let replace_same_values rows =
     let aux row acc =
       let length = List.length row in
-      let (has_same, value) = is_same_value length row in
+      let has_same, value = is_same_value length row in
       if not has_same then row :: acc
       else
         let name = List.hd row in
@@ -446,9 +451,8 @@ module Table1 = struct
     in
 
     Pb.text row_name
-    ::
-    (List.mapi pp_cell scalars |> List.map Pb.text
-    |> List.map (Pb.align ~h:`Right ~v:`Top))
+    :: (List.mapi pp_cell scalars |> List.map Pb.text
+       |> List.map (Pb.align ~h:`Right ~v:`Top))
 
   let cells_of_section_row col_count (`Section name : section_row) =
     Pb.text name
@@ -475,7 +479,7 @@ module Table2 = struct
   let create_header_rows summaries =
     let only_one_summary = List.length summaries = 1 in
     [
-      "" :: (if only_one_summary then [] else [""])
+      ("" :: (if only_one_summary then [] else [""]))
       @ [
           "total";
           "min per block";
@@ -484,8 +488,7 @@ module Table2 = struct
           "avg per sec";
         ];
     ]
-    |> Pb.matrix_to_text
-    |> Pb.align_matrix `Center
+    |> Pb.matrix_to_text |> Pb.align_matrix `Center
 
   let floors_of_summaries : string list -> summary list -> summary_floor list =
    fun summary_names summaries ->
@@ -543,10 +546,8 @@ module Table2 = struct
     @ [
         `Spacer;
         pb ~f:(`RG, `RM, `RM) "Disk bytes read" (fun s -> s.index.bytes_read);
-        pb
-          ~f:(`RG, `RM, `RM)
-          "Disk bytes written"
-          (fun s -> s.index.bytes_written);
+        pb ~f:(`RG, `RM, `RM) "Disk bytes written" (fun s ->
+            s.index.bytes_written);
         pb ~f:(`RG, `RM, `RM) "Disk bytes both" (fun s -> s.index.bytes_both);
         `Spacer;
         pb "Disk reads" (fun s -> s.index.nb_reads);
@@ -586,19 +587,13 @@ module Table2 = struct
         pb "tree.node_val_find" (fun s -> s.tree.node_val_find);
         pb "tree.node_val_list" (fun s -> s.tree.node_val_list);
         `Spacer;
-        pb
-          ~f:(`RG, `RM, `Ri)
-          "index.cumu_data_bytes"
-          (fun s -> s.index.cumu_data_bytes);
+        pb ~f:(`RG, `RM, `Ri) "index.cumu_data_bytes" (fun s ->
+            s.index.cumu_data_bytes);
         `Spacer;
-        pb
-          ~f:(`RG, `RM, `RM)
-          "gc.minor_words allocated"
-          (fun s -> s.ocaml_gc.minor_words);
-        pb
-          ~f:(`RG, `RM, `RM)
-          "gc.major_words allocated"
-          (fun s -> s.ocaml_gc.major_words);
+        pb ~f:(`RG, `RM, `RM) "gc.minor_words allocated" (fun s ->
+            s.ocaml_gc.minor_words);
+        pb ~f:(`RG, `RM, `RM) "gc.major_words allocated" (fun s ->
+            s.ocaml_gc.major_words);
         pb "gc.minor_collections" (fun s -> s.ocaml_gc.minor_collections);
         pb "gc.major_collections" (fun s -> s.ocaml_gc.major_collections);
         `Spacer;
@@ -624,8 +619,8 @@ module Table2 = struct
           floor_name,
           names_and_variables )) =
     let only_one_summary = List.length names_and_variables = 1 in
-    let (_, variables) = List.split names_and_variables in
-    let (total0, min0, max0, avg0, avg_ps0) = Stdlib.List.hd variables in
+    let _, variables = List.split names_and_variables in
+    let total0, min0, max0, avg0, avg_ps0 = Stdlib.List.hd variables in
 
     let box_of_scalar scalar_format row_idx v0 v =
       let ratio = v /. v0 in
@@ -650,8 +645,7 @@ module Table2 = struct
       in
       let pp_scalar ppf = pp_scalar_fixed ppf (scalar_format, v) in
       Fmt.str "%t%t" pp_scalar pp_percent
-      |> Pb.text
-      |> Pb.align ~h:`Right ~v:`Top
+      |> Pb.text |> Pb.align ~h:`Right ~v:`Top
     in
     let rows =
       List.mapi
@@ -659,7 +653,7 @@ module Table2 = struct
           let a = Pb.text (if row_idx = 0 then floor_name else "") in
           let b = if only_one_summary then [] else [Pb.text summary_name] in
           let c =
-            let (total, min, max, avg, avg_ps) = variable in
+            let total, min, max, avg, avg_ps = variable in
             [
               box_of_scalar scalar_format_c row_idx total0 total;
               box_of_scalar scalar_format_a row_idx min0 min;
@@ -668,7 +662,7 @@ module Table2 = struct
               box_of_scalar scalar_format_b row_idx avg_ps0 avg_ps;
             ]
           in
-          a :: b @ c)
+          (a :: b) @ c)
         names_and_variables
     in
     rows
@@ -693,11 +687,10 @@ module Table3 = struct
   let create_header_rows summaries =
     let only_one_summary = List.length summaries = 1 in
     [
-      "" :: (if only_one_summary then [] else [""])
+      ("" :: (if only_one_summary then [] else [""]))
       @ ["cumu"; "share"; "min"; "max"; "avg"];
     ]
-    |> Pb.matrix_to_text
-    |> Pb.align_matrix `Center
+    |> Pb.matrix_to_text |> Pb.align_matrix `Center
 
   let floors_of_summaries : string list -> summary list -> summary_floor list =
    fun summary_names summaries ->
@@ -763,8 +756,8 @@ module Table3 = struct
         ((scalar_format_a, _scalar_format_b), floor_name, names_and_variables))
       =
     let only_one_summary = List.length names_and_variables = 1 in
-    let (_, variables) = List.split names_and_variables in
-    let (cumu0, _, min0, max0, avg0) = Stdlib.List.hd variables in
+    let _, variables = List.split names_and_variables in
+    let cumu0, _, min0, max0, avg0 = Stdlib.List.hd variables in
 
     let box_of_scalar scalar_format row_idx v0 v =
       let ratio = v /. v0 in
@@ -791,8 +784,7 @@ module Table3 = struct
       let pp_scalar ppf = pp_scalar_fixed ppf (scalar_format, v) in
 
       Fmt.str "%t%t" pp_scalar pp_percent
-      |> Pb.text
-      |> Pb.align ~h:`Right ~v:`Top
+      |> Pb.text |> Pb.align ~h:`Right ~v:`Top
     in
     let rows =
       List.mapi
@@ -800,7 +792,7 @@ module Table3 = struct
           let a = Pb.text (if row_idx = 0 then floor_name else "") in
           let b = if only_one_summary then [] else [Pb.text summary_name] in
           let c =
-            let (cumu, _share, min, max, avg) = variable in
+            let cumu, _share, min, max, avg = variable in
             [
               box_of_scalar scalar_format_a row_idx cumu0 cumu;
               box_of_scalar `P row_idx Float.nan _share;
@@ -809,7 +801,7 @@ module Table3 = struct
               box_of_scalar scalar_format_a row_idx avg0 avg;
             ]
           in
-          a :: b @ c)
+          (a :: b) @ c)
         names_and_variables
     in
     rows
@@ -891,13 +883,11 @@ module Table4 = struct
     in
     let col_b =
       (if only_one_summary then [] else [[""; ""; ""]])
-      |> Pb.matrix_to_text
-      |> Pb.align_matrix `Center
+      |> Pb.matrix_to_text |> Pb.align_matrix `Center
     in
     let cols_c =
       Stdlib.List.init sample_count header_cells_per_col_idx
-      |> Pb.matrix_to_text
-      |> Pb.align_matrix `Center
+      |> Pb.matrix_to_text |> Pb.align_matrix `Center
     in
     col_a @ col_b @ cols_c |> Pb.transpose_matrix
 
@@ -1047,8 +1037,7 @@ module Table4 = struct
       `Data (`R, "TZ-contrat per block *C", tz_contract_count_pb);
       `Data (`R, "Context op per block *C", ev_count_pb);
       (* <op> per sec *)
-      `Spacer;
-      (* <phase> duration *)
+      `Spacer (* <phase> duration *);
     ]
     @ List.map span_occu_count Span.Key.all_atoms_seen
     @ [
@@ -1056,8 +1045,7 @@ module Table4 = struct
         span_duration `Sm `Block;
         span_duration `Sm `Buildup;
         span_duration `Sm `Commit;
-        `Spacer;
-        (* <op> duration *)
+        `Spacer (* <op> duration *);
       ]
     @ List.map (span_duration `Su) Span.Key.all_frequent_ops
     @ [
@@ -1137,10 +1125,12 @@ module Table4 = struct
             s.index.cumu_data_bytes);
         `Spacer;
         v "gc.minor_words allocated *C" (fun s -> s.ocaml_gc.minor_words);
-        pb "gc.minor_words allocated per block *LA" (fun s -> s.ocaml_gc.minor_words);
+        pb "gc.minor_words allocated per block *LA" (fun s ->
+            s.ocaml_gc.minor_words);
         v "gc.promoted_words *C" (fun s -> s.ocaml_gc.promoted_words);
         v "gc.major_words allocated *C" (fun s -> s.ocaml_gc.major_words);
-        pb "gc.major_words allocated per block *LA" (fun s -> s.ocaml_gc.major_words);
+        pb "gc.major_words allocated per block *LA" (fun s ->
+            s.ocaml_gc.major_words);
         v "gc.minor_collections *C" (fun s -> s.ocaml_gc.minor_collections);
         pb "gc.minor_collections per block *LA" (fun s ->
             s.ocaml_gc.minor_collections);
@@ -1151,7 +1141,8 @@ module Table4 = struct
         `Spacer;
         v ~f:`RM "gc.major heap bytes top *C" (fun s ->
             s.ocaml_gc.major_heap_top_bytes);
-        v ~f:`RM "gc.major heap bytes *LA" (fun s -> s.ocaml_gc.major_heap_bytes);
+        v ~f:`RM "gc.major heap bytes *LA" (fun s ->
+            s.ocaml_gc.major_heap_bytes);
         `Spacer;
         v "rusage.utime *C" ~f:`S (fun s -> s.rusage.utime);
         pb "rusage.utime per block *LA" ~f:`S (fun s -> s.rusage.utime);
@@ -1185,7 +1176,7 @@ module Table4 = struct
 
   let resample_curves_of_floor sample_count = function
     | `Data (a, b, names_and_curves) ->
-        let (names, curves) = List.split names_and_curves in
+        let names, curves = List.split names_and_curves in
         let curves =
           List.map
             (fun curve ->
@@ -1198,7 +1189,7 @@ module Table4 = struct
   let matrix_of_data_floor (`Data (scalar_format, floor_name, names_and_curves))
       =
     let only_one_summary = List.length names_and_curves = 1 in
-    let (_, curves) = List.split names_and_curves in
+    let _, curves = List.split names_and_curves in
     let pp_real = Utils.create_pp_real (List.concat curves) in
     let pp_seconds = Utils.create_pp_seconds (List.concat curves) in
     let curve0 = Stdlib.List.hd curves in
@@ -1236,8 +1227,7 @@ module Table4 = struct
             pp_scalar_fixed ppf (scalar_format, v)
       in
       Fmt.str "%t%t" pp_scalar pp_percent
-      |> Pb.text
-      |> Pb.align ~h:`Right ~v:`Top
+      |> Pb.text |> Pb.align ~h:`Right ~v:`Top
     in
     let rows =
       List.mapi
@@ -1247,7 +1237,7 @@ module Table4 = struct
           let c =
             List.mapi (box_of_scalar row_idx) (Stdlib.List.combine curve0 curve)
           in
-          a :: b @ c)
+          (a :: b) @ c)
         names_and_curves
     in
     rows

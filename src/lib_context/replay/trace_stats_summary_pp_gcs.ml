@@ -241,9 +241,56 @@ let is_step_finalise = function
   | "copy latest newies" -> true
   | "swap and purge" -> true
   | "unlink" -> true
-  | x ->
-      Fmt.epr "Please edit code to classify: %S\n%!" x ;
-      assert false
+  | x -> Fmt.failwith "Please edit code to classify: %S\n%!" x
+
+let order_of_main_step s =
+  let l =
+    [
+      "total";
+      "finalise";
+      "worker startup";
+      "before finalise";
+      "worker wait";
+      "read output";
+      "copy latest newies";
+      "swap and purge";
+      "unlink";
+    ]
+  in
+  let idxs = List.init (List.length l) Fun.id in
+  match List.combine l idxs |> List.assoc_opt s with
+  | None -> Fmt.failwith "Please edit code to order: %S\n%!" s
+  | Some i -> i
+
+let sort_main_steps l =
+  let compare a b = compare (order_of_main_step a) (order_of_main_step b) in
+  List.fast_sort compare l
+
+let order_of_worker_step s =
+  let l =
+    [
+      "total";
+      "open files";
+      "load commit";
+      "mapping: start";
+      "mapping: commits to reachable";
+      "mapping: objects to reachable";
+      "mapping: of reachable";
+      "prefix: start";
+      "prefix: transfer";
+      "prefix: rewrite commit parents";
+      "suffix: start";
+      "suffix: transfer";
+    ]
+  in
+  let idxs = List.init (List.length l) Fun.id in
+  match List.combine l idxs |> List.assoc_opt s with
+  | None -> Fmt.failwith "Please edit code to order: %S\n%!" s
+  | Some i -> i
+
+let sort_worker_steps l =
+  let compare a b = compare (order_of_worker_step a) (order_of_worker_step b) in
+  List.fast_sort compare l
 
 module Point = struct
   (** Multi dimensional key *)
@@ -331,8 +378,8 @@ module Point = struct
         List.filter (fun (k, _v) -> k.(axis) = value) sf
 
       (** This is very similar to [pandas.DataFrame.pivot] *)
-      let to_printbox (sf : t) ~col_axes ~row_axes ~should_put_space_before_row
-          =
+      let to_printbox (sf : t) ~col_axes ~row_axes ~sort_dim
+          ~should_put_space_before_row =
         assert (List.length col_axes >= 1) ;
         assert (List.length row_axes >= 1) ;
         assert (List.length sf >= 1) ;
@@ -346,10 +393,14 @@ module Point = struct
                 else values_per_dim.(i) <- values_per_dim.(i) @ [ki])
               k)
           sf ;
-        let rows =
+        Array.iteri
+          (fun i values_in_dim ->
+            values_per_dim.(i) <- sort_dim i values_in_dim)
+          values_per_dim ;
+        let rows : string list list =
           cartesian_product (List.map (Array.get values_per_dim) row_axes)
         in
-        let cols =
+        let cols : string list list =
           cartesian_product (List.map (Array.get values_per_dim) col_axes)
         in
         let matrix : string list list =
@@ -400,24 +451,33 @@ module Point = struct
   end
 end
 
-let aggregate_gc_product summary_names summaries f =
+(** Calls [f] once for each summary, except for the summaries with no GCs *)
+let unfold_on_gc_activity summary_names summaries which_gcs f =
   let summary_product f = List.map2 f summary_names summaries |> List.flatten in
   let gc_product f sname summary =
-    match summary.gcs with
-    | [] ->
+    match (which_gcs, summary.gcs) with
+    | _, [] ->
         (* No GC in this summary. Let's ignore it *)
         []
-    | hd :: _tl -> f sname hd
+    | `Only_last, (hd : gc) :: _ -> f sname hd.gc_stats
+    | `All, l ->
+        List.mapi
+          (fun i (gc : gc) ->
+            let sname = Printf.sprintf "%s gc-%d" sname i in
+            f sname gc.gc_stats)
+          l
+        |> List.flatten
   in
   summary_product (gc_product f)
 
-let aggregate_main_activity_product summary_names summaries f =
+(** Calls [f] once for each summary *)
+let unfold_on_main_activity summary_names summaries which_gcs f =
   let summary_product f = List.map2 f summary_names summaries |> List.flatten in
   let gc_product f sname summary =
-    let main =
-      match summary.gcs with
-      | [] ->
-          (* No GC in this summary. Let's mock the main activity. *)
+    match (which_gcs, summary.gcs) with
+    | _, [] ->
+        (* No GC in this summary. Let's mock the main activity. *)
+        let main_activity =
           {
             span = summary.span;
             rusage = summary.rusage;
@@ -426,17 +486,24 @@ let aggregate_main_activity_product summary_names summaries f =
             block_count = summary.block_count;
             cpu_usage = summary.cpu_usage;
           }
-      | (hd : gc) :: _tl -> hd.main_activity
-    in
-    f sname main
+        in
+        f sname main_activity
+    | `Only_last, (hd : gc) :: _ -> f sname hd.main_activity
+    | `All, l ->
+        List.mapi
+          (fun i (gc : gc) ->
+            let sname = Printf.sprintf "%s gc-%d" sname i in
+            f sname gc.main_activity)
+          l
+        |> List.flatten
   in
 
   summary_product (gc_product f)
 
 module Main_timings = struct
-  let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let gc = gc.gc_stats in
+  let build_ff summary_names summaries which_gcs : Point.Float.Frame.t =
+    unfold_on_gc_activity summary_names summaries which_gcs
+    @@ fun sname (gc : Def.Gc.t) ->
     let total_duration = List.map (fun (_, d) -> d) gc.steps |> sum_duration in
     let finalise_duration =
       gc.steps
@@ -462,8 +529,8 @@ module Main_timings = struct
     @ ff_of_timings "finalise" finalise_duration
     @ ff_steps
 
-  let pp ppf (summary_names, summaries) =
-    let ff = build_ff summary_names summaries in
+  let pp ppf (summary_names, summaries, which_gcs) =
+    let ff = build_ff summary_names summaries which_gcs in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group g occurences =
@@ -487,10 +554,14 @@ module Main_timings = struct
             true
         | _ -> false
       in
+      let sort_dim i values_in_dim =
+        match i with 1 -> sort_main_steps values_in_dim | _ -> values_in_dim
+      in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[2]
         ~row_axes:[1; 0]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
@@ -498,9 +569,9 @@ module Main_timings = struct
 end
 
 module Worker_timings = struct
-  let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let gc = gc.gc_stats in
+  let build_ff summary_names summaries which_gcs : Point.Float.Frame.t =
+    unfold_on_gc_activity summary_names summaries which_gcs
+    @@ fun sname (gc : Def.Gc.t) ->
     let total_duration =
       List.map (fun (_, step) -> step.Def.Gc.duration) gc.worker.steps
       |> sum_duration
@@ -524,8 +595,8 @@ module Worker_timings = struct
     in
     ff_of_timings "total" total_duration @ ff_steps
 
-  let pp ppf (summary_names, summaries) =
-    let ff = build_ff summary_names summaries in
+  let pp ppf (summary_names, summaries, which_gcs) =
+    let ff = build_ff summary_names summaries which_gcs in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group g occurences =
@@ -549,10 +620,14 @@ module Worker_timings = struct
         | "open files" :: sname :: __ when sname = List.hd summary_names -> true
         | _ -> false
       in
+      let sort_dim i values_in_dim =
+        match i with 1 -> sort_worker_steps values_in_dim | _ -> values_in_dim
+      in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[2]
         ~row_axes:[1; 0]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
@@ -560,9 +635,9 @@ module Worker_timings = struct
 end
 
 module Worker_stats = struct
-  let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let gc = gc.gc_stats in
+  let build_ff summary_names summaries which_gcs : Point.Float.Frame.t =
+    unfold_on_gc_activity summary_names summaries which_gcs
+    @@ fun sname (gc : Def.Gc.t) ->
     let w : Def.Gc.worker = gc.worker in
     let _, (last_worker_step : Def.Gc.step) = List.rev w.steps |> List.hd in
     let rusage =
@@ -650,8 +725,8 @@ module Worker_stats = struct
       ([|sname; "compactions"|], ocaml_gc.compactions |> i);
     ]
 
-  let pp ppf (summary_names, summaries) =
-    let ff = build_ff summary_names summaries in
+  let pp ppf (summary_names, summaries, which_gcs) =
+    let ff = build_ff summary_names summaries which_gcs in
     let x =
       let group_of_key k =
         match k.(1) with
@@ -682,10 +757,12 @@ module Worker_stats = struct
             true
         | _ -> false
       in
+      let sort_dim _i values_in_dim = values_in_dim in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[0]
         ~row_axes:[1]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
@@ -759,12 +836,13 @@ module Worker_stats_per_step = struct
       ([|sname; stepname; "compactions"|], ocaml_gc.compactions |> i);
     ]
 
-  let build_ff summary_names summaries which : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let gc = gc.gc_stats in
+  let build_ff summary_names summaries which_gcs which_table :
+      Point.Float.Frame.t =
+    unfold_on_gc_activity summary_names summaries which_gcs
+    @@ fun sname (gc : Def.Gc.t) ->
     List.map
       (fun (stepname, step) ->
-        match which with
+        match which_table with
         | `Rusage -> rusage_ff_of_worker_step sname stepname step
         | `Disk -> disk_ff_of_worker_step sname stepname step
         | `Pack_store -> pack_store_ff_of_worker_step sname stepname step
@@ -773,8 +851,8 @@ module Worker_stats_per_step = struct
       gc.worker.steps
     |> List.flatten
 
-  let pp ppf (summary_names, summaries, which) =
-    let ff = build_ff summary_names summaries which in
+  let pp ppf (summary_names, summaries, which_gcs, which_table) =
+    let ff = build_ff summary_names summaries which_gcs which_table in
     let x =
       let group_of_key k = [k.(1); k.(2)] in
       let formatter_of_group _g occurences = Utils.create_pp_real occurences in
@@ -788,10 +866,14 @@ module Worker_stats_per_step = struct
     let sf = Point.String.Frame.concat x y in
     let s =
       let should_put_space_before_row = Fun.const false in
+      let sort_dim i values_in_dim =
+        match i with 1 -> sort_worker_steps values_in_dim | _ -> values_in_dim
+      in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[2]
         ~row_axes:[1; 0]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
@@ -799,9 +881,9 @@ module Worker_stats_per_step = struct
 end
 
 module File_sizes = struct
-  let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_gc_product summary_names summaries @@ fun sname (gc : gc) ->
-    let gc = gc.gc_stats in
+  let build_ff summary_names summaries which_gcs : Point.Float.Frame.t =
+    unfold_on_gc_activity summary_names summaries which_gcs
+    @@ fun sname (gc : Def.Gc.t) ->
     let start0 = gc.before_suffix_start_offset |> Int63.to_float in
     let start1 = gc.after_suffix_start_offset |> Int63.to_float in
     let end0 = gc.before_suffix_end_offset |> Int63.to_float in
@@ -843,8 +925,8 @@ module File_sizes = struct
         suffix1 -. first_loop -. extra_loops );
     ]
 
-  let pp ppf (summary_names, summaries) =
-    let ff = build_ff summary_names summaries in
+  let pp ppf (summary_names, summaries, which_gcs) =
+    let ff = build_ff summary_names summaries which_gcs in
     let x =
       let group_of_key k = [k.(1)] in
       let formatter_of_group _g _occurences = Utils.pp_real `M in
@@ -863,10 +945,12 @@ module File_sizes = struct
             true
         | _ -> false
       in
+      let sort_dim _i values_in_dim = values_in_dim in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[0]
         ~row_axes:[1]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
@@ -874,13 +958,17 @@ module File_sizes = struct
 end
 
 module Main_activity = struct
-  let build_ff summary_names summaries : Point.Float.Frame.t =
-    aggregate_main_activity_product summary_names summaries
+  let build_ff summary_names summaries which_gcs : Point.Float.Frame.t =
+    unfold_on_main_activity summary_names summaries which_gcs
     @@ fun sname (main : main_activity) ->
     let total_duration = (Span.Map.find `Block main.span).cumu_duration.diff in
     let block_count = float_of_int main.block_count in
     [
-      ([|sname; "total GC duration"|], total_duration);
+      ([|sname; "total duration (wall)"|], total_duration);
+      ( [|sname; "total duration (sys)"|],
+        main.rusage.stime.value_after_commit.diff );
+      ( [|sname; "total duration (user)"|],
+        main.rusage.utime.value_after_commit.diff );
       ([|sname; "%cpu"|], main.cpu_usage.mean);
       ( [|sname; "max commit duration"|],
         (Span.Map.find `Commit main.span).duration.max_value |> fst );
@@ -891,9 +979,11 @@ module Main_activity = struct
       );
       ( [|sname; "mean find duration"|],
         (Span.Map.find (`Frequent_op `Find) main.span).duration.mean );
-      ([|sname; "Blocks"|], block_count);
+      ([|sname; "blocks"|], block_count);
       ([|sname; "TZ-Transactions"|], main.block_specs.tzop_count_tx.value.diff);
       ([|sname; "TZ-Operations"|], main.block_specs.tzop_count.value.diff);
+      ( [|sname; "last block level"|],
+        main.block_specs.level_over_blocks |> List.rev |> List.hd );
       ([|sname; "disk reads"|], main.index.nb_reads.value_after_commit.diff);
       ( [|sname; "disk bytes read"|],
         main.index.bytes_read.value_after_commit.diff );
@@ -906,7 +996,7 @@ module Main_activity = struct
       ([|sname; "oublock"|], main.rusage.oublock.value_after_commit.diff);
       ([|sname; "nvcsw"|], main.rusage.nvcsw.value_after_commit.diff);
       ([|sname; "nivcsw"|], main.rusage.nivcsw.value_after_commit.diff);
-      ([|sname; "Blocks/sec"|], float_of_int main.block_count /. total_duration);
+      ([|sname; "blocks/sec"|], float_of_int main.block_count /. total_duration);
       ( [|sname; "TZ-Transactions/sec"|],
         main.block_specs.tzop_count_tx.value.diff /. total_duration );
       ( [|sname; "TZ-Operations/sec"|],
@@ -945,21 +1035,23 @@ module Main_activity = struct
         main.rusage.nivcsw.value_after_commit.diff /. block_count );
     ]
 
-  let pp ppf (summary_names, summaries) =
-    let ff = build_ff summary_names summaries in
+  let pp ppf (summary_names, summaries, which_gcs) =
+    let ff = build_ff summary_names summaries which_gcs in
     let x =
       let group_of_key k = [k.(1)] in
       let formatter_of_group g occurences =
         if List.exists (fun s -> String.contains s '%') g || List.mem "share" g
         then Utils.pp_percent
-        else if List.exists (String.ends_with ~suffix:"duration") g then
+        else if List.exists (String.starts_with ~prefix:"total duration") g then
           Utils.create_pp_seconds occurences
         else Utils.create_pp_real occurences
       in
       Point.Float.Frame.stringify ff ~group_of_key ~formatter_of_group
     in
     let y =
-      let keep_blank = Array.exists (fun s -> String.contains s '%') in
+      let keep_blank =
+        Array.exists (fun s -> String.contains s '%' || s == "last block level")
+      in
       let group_of_key k = [k.(1)] in
       Point.Float.Frame.stringify_percents ff ~keep_blank ~group_of_key
     in
@@ -967,24 +1059,33 @@ module Main_activity = struct
     let sf = Point.String.Frame.concat x y in
     let s =
       let should_put_space_before_row = function
-        | ("Blocks" | "Blocks/sec" | "minflt/block") :: _ -> true
+        | ("blocks" | "blocks/sec" | "minflt/block") :: _ -> true
         | _ -> false
       in
+      let sort_dim _i values_in_dim = values_in_dim in
       Point.String.Frame.to_printbox
         sf
         ~col_axes:[0]
         ~row_axes:[1]
+        ~sort_dim
         ~should_put_space_before_row
       |> PrintBox_text.to_string
     in
     Fmt.pf ppf "%s" s
 end
 
-let pp_gcs ppf (summary_names, summaries) =
+let pp_gcs ppf (summary_names, summaries, which_gcs) =
+  let setup =
+    Trace_stats_summary_pp.Table0.box_of_summaries_config
+      summary_names
+      summaries
+    |> Pb.matrix_with_column_spacers |> Pb.grid_l ~bars:false
+    |> PrintBox_text.to_string
+  in
   Format.fprintf
     ppf
     {|-- Config / Setup --
-
+%s
 
 -- Main thread during GC (IO stats do not count mmap) --
 %a
@@ -1015,35 +1116,31 @@ let pp_gcs ppf (summary_names, summaries) =
 
 -- Worker ocaml_gc stats per step --
 %a|}
+    setup
     Main_activity.pp
-    (summary_names, summaries)
+    (summary_names, summaries, which_gcs)
     File_sizes.pp
-    (summary_names, summaries)
+    (summary_names, summaries, which_gcs)
     Worker_stats.pp
-    (summary_names, summaries)
+    (summary_names, summaries, which_gcs)
     Main_timings.pp
-    (summary_names, summaries)
+    (summary_names, summaries, which_gcs)
     Worker_timings.pp
-    (summary_names, summaries)
+    (summary_names, summaries, which_gcs)
     Worker_stats_per_step.pp
-    (summary_names, summaries, `Rusage)
+    (summary_names, summaries, which_gcs, `Rusage)
     Worker_stats_per_step.pp
-    (summary_names, summaries, `Disk)
+    (summary_names, summaries, which_gcs, `Disk)
     Worker_stats_per_step.pp
-    (summary_names, summaries, `Pack_store)
+    (summary_names, summaries, which_gcs, `Pack_store)
     Worker_stats_per_step.pp
-    (summary_names, summaries, `Inode)
+    (summary_names, summaries, which_gcs, `Inode)
     Worker_stats_per_step.pp
-    (summary_names, summaries, `Ocaml_gc)
+    (summary_names, summaries, which_gcs, `Ocaml_gc)
 
 (*
 
-TODO: Average all inputs GCs
 TODO: Update irmin version in order to have file sizes
 TODO: Read/write bytes par second in worker steps
-
-TODO: Need config and setup
-TODO: Number of GCs in the setup/config
-TODO: toposort for step names
 
 *)
