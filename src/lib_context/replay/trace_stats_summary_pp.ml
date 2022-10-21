@@ -233,7 +233,7 @@ module Table0 = struct
         | `Pack -> "pack"
         | `Pack_layered -> "pack-layered"
         | `Pack_mem -> "pack-mem")
-    | `Irmin_pack_gc_count -> (List.length s.gcs |> string_of_int)
+    | `Irmin_pack_gc_count -> List.length s.gcs |> string_of_int
     | `Gc_minor_heap_size ->
         string_of_int s.header.ocaml_gc_control.minor_heap_size
     | `Gc_major_heap_increment ->
