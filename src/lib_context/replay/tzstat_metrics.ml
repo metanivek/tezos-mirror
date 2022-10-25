@@ -85,7 +85,7 @@ type block_info = {
 type t = {root : string; tbl : (int, block_info) Hashtbl.t}
 
 (* Using yojson because repr doesn't handle tuples of size >=4 *)
-type page = (int * int * int * int * int * int * int * int * int * string) array
+type page = (int * int * int * int * int * int * int * string) array
 [@@deriving yojson {exn = true}]
 
 (* queries the tzstats API *)
@@ -95,7 +95,7 @@ let fetch page_i : string Lwt.t =
     (* The heights might not be unique. Several blocks might have same
        height. *)
     Printf.sprintf
-      "https://api.tzstats.com/tables/block.json?columns=height,n_ops,n_tx,n_ops_contract,gas_used,storage_size,is_cycle_snapshot,time,solvetime,hash&height.gte=%d&height.lt=%d&limit=%d"
+      "https://api.tzstats.com/tables/block.json?columns=height,n_ops_applied,n_tx,gas_used,is_cycle_snapshot,time,solvetime,hash&height.gte=%d&height.lt=%d&limit=%d"
       (page_i * request_size)
       ((page_i + 1) * request_size)
       (request_size * 2)
@@ -113,7 +113,7 @@ let fetch page_i : string Lwt.t =
       | `OK -> Cohttp_lwt.Body.to_string body
       | _ ->
           Fmt.failwith
-            "Failed to fetch info from tzstats.com\n%a"
+            "Failed to fetch %s\n%a" url
             Cohttp.Response.pp_hum
             resp)
 
@@ -148,7 +148,7 @@ let fetch t page_i : page Lwt.t =
     let res =
       Array.to_list res
       |> filter_2by2
-           (fun (h, _, _, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _, _, _)
+           (fun (h, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _)
            -> h <> h')
       |> Array.of_list
     in
@@ -161,10 +161,10 @@ let fetch t page_i : page Lwt.t =
       | _ ->
           Some
             ( Array.get res (count_got - 1)
-            |> fun (h, _, _, _, _, _, _, _, _, _) -> h )
+            |> fun (h, _, _, _, _, _, _, _) -> h )
     in
     iter_2by2
-      (fun (h, _, _, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _, _, _) ->
+      (fun (h, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _) ->
         if h + 1 <> h' then
           Fmt.failwith
             "Two consecutive blocks have level %d / %d from tzstats.com"
@@ -189,9 +189,9 @@ let fetch t i : unit Lwt.t =
     (fun ( height,
            op_count,
            op_count_tx,
-           op_count_contract,
+           (* op_count_contract, *)
            gas_used,
-           storage_size,
+           (* storage_size, *)
            is_cycle_snapshot,
            time,
            solvetime,
@@ -202,9 +202,9 @@ let fetch t i : unit Lwt.t =
         {
           op_count;
           op_count_tx;
-          op_count_contract;
+          op_count_contract = 0;
           gas_used;
-          storage_size;
+          storage_size = 0;
           is_cycle_snapshot;
           time;
           solvetime;

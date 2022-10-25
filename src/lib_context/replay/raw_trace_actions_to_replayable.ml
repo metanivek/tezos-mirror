@@ -714,21 +714,14 @@ module Pass0 = struct
       let events_since_commit = acc.events_since_commit + 1 in
       match row with
       | Init (ro, _) ->
-          if acc.should_init = `Absent then
-            {
-              acc with
-              ingest_row = look_after_init idx;
-              events_since_commit;
-              should_init = `Found ro;
-            }
-          else
-            Fmt.failwith
-              "Two inits were found in the trace. It should not be possible."
-      | row ->
-          Fmt.failwith
-            "Unexpected op at the beginning of a block for the row start: %a"
-            (Repr.pp Def0.row_t)
-            row
+          assert (acc.should_init = `Absent);
+          {
+            acc with
+            ingest_row = look_after_init idx;
+            events_since_commit;
+            should_init = `Found ro;
+          }
+      | row -> look_after_init idx acc (idx, row)
 
     and look_after_init first_row_idx acc (_, row) =
       let open Def0 in

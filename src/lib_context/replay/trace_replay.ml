@@ -623,10 +623,6 @@ struct
     on_rhs_hash rs hash hash' ;
     Lwt.return_unit
 
-  let hash_per_level = Stdlib.Hashtbl.create 0
-  let gc_every = 20
-  let gc_distance_in_the_past = 20
-
   module Event_sink_for_gc = struct
     type t = unit
 
@@ -640,13 +636,18 @@ struct
       in
       let () =
         match M.name with
-        | "starting_gc" -> Stat_recorder.report_gc_start ()
+        | "starting_gc" ->
+           Fmt.epr "\n>starting_gc\n%!";
+           Stat_recorder.report_gc_start ()
         | "ending_gc" -> (
+          Fmt.epr "\n>ending_gc\n%!";
             let open Irmin_pack_unix.Stats in
             let latest_gc = (get ()).latest_gc |> Latest_gc.export in
-            match latest_gc with
+            (match latest_gc with
             | None -> assert false
-            | Some s -> Stat_recorder.report_gc s)
+            | Some s -> Stat_recorder.report_gc s);
+            Fmt.failwith "super"
+        )
         | "gc_launch_failure" -> ()
         | "gc_failure" -> assert false
         | _ -> assert false
@@ -656,28 +657,28 @@ struct
     let close () = Lwt.return (Ok ())
   end
 
+  let hash_of_string s = Context_hash.of_b58check_exn s
+  (* let hash_per_level = Stdlib.Hashtbl.create 0 *)
+  (* let gc_every = 20 *)
+  (* let gc_distance_in_the_past = 20 *)
+  let gc_started = ref false
+  let gc_hash = hash_of_string "CoWQHoNwMtRvhkadnNxJgyHbD1TAXCNDRn4FV3vcNXaLaduTG91n"
+
   let exec_commit rs ((time, message, c), hash) =
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
     let time = Time.Protocol.of_seconds time in
     let c = on_lhs_context rs c in
     let* hash' = Context.commit ~time ?message c in
 
-    Stdlib.Hashtbl.add hash_per_level rs.current_row.level hash';
+    (* Stdlib.Hashtbl.add hash_per_level rs.current_row.level hash'; *)
     let* () =
-      if rs.current_row.level mod gc_every = 0 then (
-        let gc_lvl = rs.current_row.level - gc_distance_in_the_past in
-        match Stdlib.Hashtbl.find_opt hash_per_level gc_lvl with
-        | None ->
-           (* Fmt.epr "\nlvl%d: Too soon for GC on %d\n%!" rs.current_row.level gc_lvl; *)
-           Lwt.return_unit
-        | Some h ->
-           (* Fmt.epr "\nlvl%d: Attempting to start GC on %d \n%!" rs.current_row.level gc_lvl; *)
-           Context.gc rs.index h
+      if not (!gc_started) then (
+        gc_started := true;
+        Context.gc rs.index gc_hash
       ) else
         Lwt.return_unit
     in
     on_rhs_hash rs hash hash' ;
-    (* monitor_latest_gc rs ; *)
     Lwt.return_unit
 
   let rec exec_init (rs : cold_replay_state) (row : Def.row) (readonly, ()) =
