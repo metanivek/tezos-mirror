@@ -7,9 +7,12 @@
   (name replay)
   (modules replay)
   (libraries cmdliner
+             tezos-base
              tezos-context
              tezos-context.replay
-             ))
+             )
+  (flags (:standard  -open Tezos_base__TzPervasives))
+)
 
 (executable
   (name manage_actions)

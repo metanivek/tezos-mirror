@@ -35,6 +35,9 @@ type config = {
   stats_trace_message : string option;
   no_pp_summary : bool;
   indexing_strategy : [`Always | `Minimal];
+  gc_when : [`Never | `Every of int | `Level of int];
+  gc_target : [`Distance of int | `Level of int | `Hash of Context_hash.t];
+  stop_after_first_gc : bool
 }
 
 module type Config = sig

@@ -37,7 +37,7 @@ type indexing_strategy = Always | Minimal | Contents
 
 let main indexing_strategy block_count startup_store_type replayable_trace_path
     artefacts_dir keep_store keep_stats_trace no_summary empty_blobs
-    stats_trace_message no_pp_summary _gc_when _gc_target _stop_after_first_gc =
+    stats_trace_message no_pp_summary gc_when gc_target stop_after_first_gc =
   let startup_store_type =
     match startup_store_type with None -> `Fresh | Some v -> `Copy_from v
   in
@@ -64,6 +64,9 @@ let main indexing_strategy block_count startup_store_type replayable_trace_path
             stats_trace_message;
             no_pp_summary;
             indexing_strategy;
+            gc_when;
+            gc_target;
+            stop_after_first_gc;
           }
       end)
   in
@@ -213,11 +216,16 @@ let gc_target =
        (match (int_of_string_opt d) with
         | None -> fail ()
         | Some d -> Ok (`Level d))
+    | [ "hash"; s ] ->
+       (match Context_hash.of_b58check_opt s with
+        | None -> fail ()
+        | Some h -> Ok (`Hash h))
     | _ -> fail ()
   in
   let printer ppf = function
     | `Distance d -> Fmt.pf ppf "distance-%d" d;
     | `Level d -> Fmt.pf ppf "level-%d" d;
+    | `Hash h -> Fmt.pf ppf "hash-%s" (Context_hash.to_b58check h);
   in
   let doc = Arg.info ~doc:"Target of GCs." ["gc-target"] in
   Arg.(value @@ opt (conv (parser, printer)) (`Distance (8191 * 6))  doc)
