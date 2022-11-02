@@ -629,10 +629,10 @@ struct
   let report_gc_start () = Writer.add_gc_start_row (get_writer ())
 
   let report_gc stats =
-    Fmt.epr "\n%!";
-    Fmt.epr "Recorder.report_gc:\n%!";
-    Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats;
-    Fmt.epr "\n%!";
+    (* Fmt.epr "\n%!"; *)
+    (* Fmt.epr "Recorder.report_gc:\n%!"; *)
+    (* Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats; *)
+    (* Fmt.epr "\n%!"; *)
     let stats = Gc.convert stats in
     Writer.add_gc_row (get_writer ()) stats
 

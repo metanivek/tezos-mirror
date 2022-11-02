@@ -852,7 +852,7 @@ struct
         if
           block_idx mod 250 = 0
           || block_idx + 1 = rs.block_count
-          || Array.length row.Def.ops > 35_000
+          (* || Array.length row.Def.ops > 35_000 *)
           || unusual_transition
         then
           Logs.info (fun l ->
