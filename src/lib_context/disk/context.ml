@@ -347,14 +347,9 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         let commit_key = Store.Commit.key commit in
         let* launch_result = Store.Gc.run ~finished repo commit_key in
         match launch_result with
-        | Ok _ ->
-            let* () = Events.(emit starting_gc) context_hash in
-            (* Logs.info (fun m ->
-             *     m "Launch GC for commit %a@." Context_hash.pp context_hash) ; *)
-            return_unit
-        | Error (`Msg err) ->
-            let* () = Events.(emit gc_launch_failure) err in
-            return_unit)
+        | Ok true -> Events.(emit starting_gc) context_hash
+        | Ok false -> Events.(emit gc_launch_failure) "GC already ongoing"
+        | Error (`Msg err) -> Events.(emit gc_launch_failure) err)
 
   let is_gc_allowed index = Store.Gc.is_allowed index.repo
 
