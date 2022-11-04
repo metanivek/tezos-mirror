@@ -348,6 +348,7 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         in
         let commit_key = Store.Commit.key commit in
         let* launch_result = Store.Gc.run ~finished repo commit_key in
+        Store.split index.repo;
         match launch_result with
         | Ok _ -> return_unit
         | Error (`Msg err) ->
