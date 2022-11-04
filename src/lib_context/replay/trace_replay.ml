@@ -623,8 +623,8 @@ struct
     Lwt.return_unit
 
   let hash_per_level = Stdlib.Hashtbl.create 0
-  let gc_every = 20
-  let gc_distance_in_the_past = 20
+  let gc_every = 8196
+  let gc_distance_in_the_past = 6 * gc_every
 
   let exec_commit rs ((time, message, c), hash) =
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
