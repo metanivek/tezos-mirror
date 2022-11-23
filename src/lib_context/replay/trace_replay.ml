@@ -106,7 +106,7 @@ let exec_cmd cmd args =
 let should_check_hashes config = config.empty_blobs = false
 
 let open_reader max_block_count path =
-  let (version, header, ops_seq) = Def.open_reader path in
+  let version, header, ops_seq = Def.open_reader path in
   let block_count =
     match max_block_count with
     | None ->
@@ -243,12 +243,12 @@ struct
   let on_rhs_hash rs (scope_start, scope_end, hash_trace) hash_replayed =
     if rs.check_hashes then check_hash_trace hash_trace hash_replayed ;
     match (scope_start, scope_end) with
-    | (Def.First_instanciation, Def.Last_occurence) -> ()
-    | (First_instanciation, Will_reoccur) ->
+    | Def.First_instanciation, Def.Last_occurence -> ()
+    | First_instanciation, Will_reoccur ->
         rs.hash_corresps <- (hash_trace, hash_replayed) :: rs.hash_corresps
-    | (Reinstanciation, Last_occurence) ->
+    | Reinstanciation, Last_occurence ->
         rs.hash_corresps <- List.remove_assoc hash_trace rs.hash_corresps
-    | (Reinstanciation, Will_reoccur) ->
+    | Reinstanciation, Will_reoccur ->
         (* This may occur if 2 commits of the replay have the same hash *)
         ()
 
@@ -275,12 +275,12 @@ struct
   (** To be called each time a commit hash is passed to lib_context *)
   let on_lhs_hash rs (scope_start, scope_end, hash_trace) =
     match (scope_start, scope_end) with
-    | (Def.Instanciated, Def.Last_occurence) ->
+    | Def.Instanciated, Def.Last_occurence ->
         let v = List.assoc hash_trace rs.hash_corresps in
         rs.hash_corresps <- List.remove_assoc hash_trace rs.hash_corresps ;
         v
-    | (Instanciated, Def.Will_reoccur) -> List.assoc hash_trace rs.hash_corresps
-    | (Not_instanciated, (Def.Last_occurence | Def.Will_reoccur)) ->
+    | Instanciated, Def.Will_reoccur -> List.assoc hash_trace rs.hash_corresps
+    | Not_instanciated, (Def.Last_occurence | Def.Will_reoccur) ->
         (* This hash has not been seen yet out of a [commit] or [commit_genesis],
            this implies that [hash_trace] exist in the store prior to replay.
 
@@ -374,10 +374,10 @@ struct
       let tr0' = on_lhs_tree rs tr0 in
       let* tr1'_opt = Context.Tree.find_tree tr0' k in
       match (tr1_opt, tr1'_opt) with
-      | (Some tr1, Some tr1') ->
+      | Some tr1, Some tr1' ->
           on_rhs_tree rs tr1 tr1' ;
           Lwt.return_unit
-      | (None, None) -> Lwt.return_unit
+      | None, None -> Lwt.return_unit
       | _ ->
           bad_result
             rs
@@ -409,10 +409,10 @@ struct
     let c' = on_lhs_context rs c in
     let* tr'_opt = Context.find_tree c' k in
     match (tr_opt, tr'_opt) with
-    | (Some tr, Some tr') ->
+    | Some tr, Some tr' ->
         on_rhs_tree rs tr tr' ;
         Lwt.return_unit
-    | (None, None) -> Lwt.return_unit
+    | None, None -> Lwt.return_unit
     | _ ->
         bad_result rs Repr.bool (Option.is_some tr_opt) (Option.is_some tr'_opt)
 
@@ -625,7 +625,10 @@ struct
     on_rhs_hash rs hash hash' ;
     Lwt.return_unit
 
-  module Event_sink_for_gc (X : sig val rs : warm_replay_state end)= struct
+  module Event_sink_for_gc (X : sig
+    val rs : warm_replay_state
+  end) =
+  struct
     type t = unit
 
     let uri_scheme = "context-replay"
@@ -639,18 +642,17 @@ struct
       let () =
         match M.name with
         | "starting_gc" ->
-           Fmt.epr "gc_started                    \n%!";
-           Stat_recorder.report_gc_start ()
-        | "ending_gc" -> (
-            Fmt.epr "gc_ended                     \n%!";
+            Fmt.epr "gc_started                    \n%!" ;
+            Stat_recorder.report_gc_start ()
+        | "ending_gc" ->
+            Fmt.epr "gc_ended                     \n%!" ;
             let open Irmin_pack_unix.Stats in
             let latest_gc = (get ()).latest_gc |> Latest_gc.export in
             (match latest_gc with
             | None -> assert false
-            | Some s -> Stat_recorder.report_gc s);
-            if X.rs.config.stop_after_first_gc then
-              X.rs.early_stop <- true
-        )
+            | Some s -> Stat_recorder.report_gc s) ;
+            X.rs.config.stop_after_nb_gc <- X.rs.config.stop_after_nb_gc - 1 ;
+            if X.rs.config.stop_after_nb_gc <= 0 then X.rs.early_stop <- true
         | "gc_launch_failure" -> ()
         | "gc_failure" -> assert false
         | _ -> assert false
@@ -667,7 +669,7 @@ struct
     let c = on_lhs_context rs c in
     let* hash' = Context.commit ~time ?message c in
     on_rhs_hash rs hash hash' ;
-    Stdlib.Hashtbl.add rs.hash_per_level level hash';
+    Stdlib.Hashtbl.add rs.hash_per_level level hash' ;
 
     let gc_target_opt =
       match rs.config.gc_target with
@@ -675,15 +677,14 @@ struct
       | `Level i -> Stdlib.Hashtbl.find_opt rs.hash_per_level i
       | `Hash h -> Some h
     in
-    match rs.config.gc_when, gc_target_opt with
+    match (rs.config.gc_when, gc_target_opt) with
     | `Never, _ -> Lwt.return_unit
     | `Every i, Some target when rs.current_block_idx mod i = 0 ->
-       Context.gc rs.index target
+        Context.gc rs.index target
     | `Every _, _ -> Lwt.return_unit
-    | `Level lvl, Some target when lvl = level ->
-       Context.gc rs.index target
+    | `Level lvl, Some target when lvl = level -> Context.gc rs.index target
     | `Level lvl, None when lvl = level ->
-       Fmt.failwith "Should GC now but can't find target"
+        Fmt.failwith "Should GC now but can't find target"
     | `Level _, _ -> Lwt.return_unit
 
   let rec exec_init (rs : cold_replay_state) (row : Def.row) (readonly, ()) =
@@ -728,7 +729,10 @@ struct
     in
     let* () =
       let open Internal_event in
-      All_sinks.register (module Event_sink_for_gc (struct let rs = rs end)) ;
+      All_sinks.register
+        (module Event_sink_for_gc (struct
+          let rs = rs
+        end)) ;
       let+ res = All_sinks.activate (Uri.of_string "context-replay://") in
       match res with Error _err -> assert false | Ok () -> ()
     in
@@ -844,11 +848,11 @@ struct
         let* () = exec_next_events t in
         Lwt.return (`Warm t)
     | `Warm (rs : warm_replay_state) ->
-      let unusual_transition =
+        let unusual_transition =
           List.length rs.trees > 0
           || List.length rs.contexts > 0
           || List.length rs.hash_corresps <> 1
-      in
+        in
         if
           block_idx mod 250 = 0
           || block_idx + 1 = rs.block_count
@@ -858,7 +862,8 @@ struct
           Logs.info (fun l ->
               let s =
                 if unusual_transition then
-                  Printf.sprintf "tree/context/hash caches:%d/%d/%d"
+                  Printf.sprintf
+                    "tree/context/hash caches:%d/%d/%d"
                     (List.length rs.trees)
                     (List.length rs.contexts)
                     (List.length rs.hash_corresps)
@@ -869,8 +874,7 @@ struct
                 block_idx
                 row.Def.level
                 (Array.length row.Def.ops)
-                s
-                ) ;
+                s) ;
         rs.current_block_idx <- block_idx ;
         rs.current_row <- row ;
         rs.current_event_idx <- -1 ;
@@ -888,10 +892,9 @@ struct
       | Seq.Nil -> (
           match t with `Cold _ -> assert false | `Warm _ as t -> Lwt.return t)
       | Cons (row, row_seq) ->
-         let* (`Warm rs as t) = exec_block t row commit_idx in
+          let* (`Warm rs as t) = exec_block t row commit_idx in
           prog 1 ;
-          if rs.early_stop then Lwt.return t
-          else aux t (commit_idx + 1) row_seq
+          if rs.early_stop then Lwt.return t else aux t (commit_idx + 1) row_seq
     in
     aux (`Cold rs) 0 row_seq
 
@@ -931,7 +934,7 @@ struct
     Gc.set {current with allocation_policy = default_allocation_policy} ;
 
     (* 1. First open the replayable trace, *)
-    let (_, block_count, _, row_seq) =
+    let _, block_count, _, row_seq =
       open_reader Raw_config.v.block_count Raw_config.v.replayable_trace_path
     in
     let config = {Raw_config.v with block_count = Some block_count} in

@@ -37,7 +37,7 @@ type config = {
   indexing_strategy : [`Always | `Minimal];
   gc_when : [`Never | `Every of int | `Level of int];
   gc_target : [`Distance of int | `Level of int | `Hash of Context_hash.t];
-  stop_after_first_gc : bool
+  mutable stop_after_nb_gc : int;
 }
 
 module type Config = sig

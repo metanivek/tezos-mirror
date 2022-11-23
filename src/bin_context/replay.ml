@@ -37,7 +37,7 @@ type indexing_strategy = Always | Minimal | Contents
 
 let main indexing_strategy block_count startup_store_type replayable_trace_path
     artefacts_dir keep_store keep_stats_trace no_summary empty_blobs
-    stats_trace_message no_pp_summary gc_when gc_target stop_after_first_gc =
+    stats_trace_message no_pp_summary gc_when gc_target stop_after_nb_gc =
   let startup_store_type =
     match startup_store_type with None -> `Fresh | Some v -> `Copy_from v
   in
@@ -66,7 +66,7 @@ let main indexing_strategy block_count startup_store_type replayable_trace_path
             indexing_strategy;
             gc_when;
             gc_target;
-            stop_after_first_gc;
+            stop_after_nb_gc;
           }
       end)
   in
@@ -185,65 +185,65 @@ let gc_when =
   let parser s =
     let fail () = Error (`Msg (Fmt.str "%S" s)) in
     match Stdlib.String.split_on_char '-' s with
-    | [ "never" ] -> Ok (`Never)
-    | [ "every"; d ] ->
-       (match (int_of_string_opt d) with
+    | ["never"] -> Ok `Never
+    | ["every"; d] -> (
+        match int_of_string_opt d with
         | None -> fail ()
         | Some d -> Ok (`Every d))
-    | [ "after"; "level"; d ] ->
-       (match (int_of_string_opt d) with
+    | ["after"; "level"; d] -> (
+        match int_of_string_opt d with
         | None -> fail ()
         | Some d -> Ok (`Level d))
     | _ -> fail ()
   in
   let printer ppf = function
-    | `Never -> Fmt.pf ppf "never";
-    | `Every d -> Fmt.pf ppf "every-%d" d;
-    | `Level d -> Fmt.pf ppf "level-%d" d;
+    | `Never -> Fmt.pf ppf "never"
+    | `Every d -> Fmt.pf ppf "every-%d" d
+    | `Level d -> Fmt.pf ppf "level-%d" d
   in
   let doc = Arg.info ~doc:"When to start GCs." ["gc-when"] in
-  Arg.(value @@ opt (conv (parser, printer)) (`Never) doc)
+  Arg.(value @@ opt (conv (parser, printer)) `Never doc)
 
 let gc_target =
   let parser s =
     let fail () = Error (`Msg (Fmt.str "%S" s)) in
     match Stdlib.String.split_on_char '-' s with
-    | [ "distance"; d ] ->
-       (match (int_of_string_opt d) with
+    | ["distance"; d] -> (
+        match int_of_string_opt d with
         | None -> fail ()
         | Some d -> Ok (`Distance d))
-    | [ "level"; d ] ->
-       (match (int_of_string_opt d) with
+    | ["level"; d] -> (
+        match int_of_string_opt d with
         | None -> fail ()
         | Some d -> Ok (`Level d))
-    | [ "hash"; s ] ->
-       (match Context_hash.of_b58check_opt s with
+    | ["hash"; s] -> (
+        match Context_hash.of_b58check_opt s with
         | None -> fail ()
         | Some h -> Ok (`Hash h))
     | _ -> fail ()
   in
   let printer ppf = function
-    | `Distance d -> Fmt.pf ppf "distance-%d" d;
-    | `Level d -> Fmt.pf ppf "level-%d" d;
-    | `Hash h -> Fmt.pf ppf "hash-%s" (Context_hash.to_b58check h);
+    | `Distance d -> Fmt.pf ppf "distance-%d" d
+    | `Level d -> Fmt.pf ppf "level-%d" d
+    | `Hash h -> Fmt.pf ppf "hash-%s" (Context_hash.to_b58check h)
   in
   let doc = Arg.info ~doc:"Target of GCs." ["gc-target"] in
-  Arg.(value @@ opt (conv (parser, printer)) (`Distance (8191 * 6))  doc)
+  Arg.(value @@ opt (conv (parser, printer)) (`Distance (8191 * 6)) doc)
 
-let stop_after_first_gc =
+let stop_after_nb_gc =
   let doc =
     Arg.info
-      ~doc:
-        "Whether or not the replay should stop after the first GC."
-      ["stop-after-first-gc"]
+      ~doc:"Whether or not the replay should stop after the first GC."
+      ["stop-after-nb-gc"]
   in
-  Arg.(value @@ flag doc)
+  Arg.(value @@ opt int max_int @@ doc)
 
 let main_t =
   Term.(
     const main $ indexing_strategy $ block_count $ startup_store_type
     $ replayable_trace_path $ artefacts_dir $ keep_store $ keep_stats_trace
-    $ no_summary $ empty_blobs $ stats_trace_message $ no_pp_summary $ gc_when $ gc_target $ stop_after_first_gc)
+    $ no_summary $ empty_blobs $ stats_trace_message $ no_pp_summary $ gc_when
+    $ gc_target $ stop_after_nb_gc)
 
 let () =
   let info =
