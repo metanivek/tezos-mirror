@@ -746,6 +746,9 @@ module type TEZOS_CONTEXT = sig
     will return [None]. *)
   val gc : index -> Context_hash.t -> unit Lwt.t
 
+  (** [split t] creates a new GC chunk. *)
+  val split : index -> unit Lwt.t
+
   (** Sync the context with disk. Only useful for read-only instances.
       Does not fail when the context is not in read-only mode. *)
   val sync : index -> unit Lwt.t

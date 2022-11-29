@@ -662,6 +662,49 @@ struct
     let close () = Lwt.return (Ok ())
   end
 
+  module Commit_stats = struct
+    let h = open_out "/tmp/tezos_replay_stats"
+
+    type t = {mutable previous_timer : float; mutable times : float list}
+
+    let t = {previous_timer = Unix.gettimeofday (); times = []}
+
+    let steps = 30.0
+
+    let isteps = int_of_float steps
+
+    let time0 = isteps * int_of_float (t.previous_timer /. steps)
+
+    let print_stats () : unit =
+      let arr = Array.of_list t.times in
+      t.times <- [] ;
+      Array.sort Float.compare arr ;
+      let len = Array.length arr in
+      let q0 = arr.(0) in
+      let q1 = arr.(len / 4) in
+      let q2 = arr.(len / 2) in
+      let q3 = arr.(len * 3 / 4) in
+      let q4 = arr.(len - 1) in
+      let time = isteps * int_of_float (t.previous_timer /. steps) in
+      Printf.fprintf
+        h
+        "%i\t%i\t%f\t%f\t%f\t%f\t%f\n%!"
+        (time - time0)
+        len
+        q0
+        q1
+        q2
+        q3
+        q4
+
+    let add () =
+      let now = Unix.gettimeofday () in
+      if int_of_float (t.previous_timer /. steps) <> int_of_float (now /. steps)
+      then print_stats () ;
+      t.times <- (now -. t.previous_timer) :: t.times ;
+      t.previous_timer <- now
+  end
+
   let exec_commit rs ((time, message, c), hash) =
     let level = rs.current_row.level in
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
@@ -670,6 +713,7 @@ struct
     let* hash' = Context.commit ~time ?message c in
     on_rhs_hash rs hash hash' ;
     Stdlib.Hashtbl.add rs.hash_per_level level hash' ;
+    Commit_stats.add () ;
 
     let gc_target_opt =
       match rs.config.gc_target with
@@ -679,13 +723,25 @@ struct
     in
     match (rs.config.gc_when, gc_target_opt) with
     | `Never, _ -> Lwt.return_unit
-    | `Every i, Some target when rs.current_block_idx mod i = 0 ->
-        Context.gc rs.index target
-    | `Every _, _ -> Lwt.return_unit
+    | `Every i, opt_target when rs.current_block_idx mod i = 0 -> (
+        let idx = rs.current_block_idx in
+        let* () = Context.split rs.index in
+        rs.config.skip_gc <- rs.config.skip_gc - 1 ;
+        match opt_target with
+        | None ->
+            Format.printf "Skip no target at %i@.@." idx ;
+            Lwt.return ()
+        | Some target ->
+            if rs.config.skip_gc > 0 then (
+              Format.printf "Skip at %i@.@." idx ;
+              Lwt.return ())
+            else (
+              Format.printf "GC at %i@.@." idx ;
+              Context.gc rs.index target))
     | `Level lvl, Some target when lvl = level -> Context.gc rs.index target
     | `Level lvl, None when lvl = level ->
         Fmt.failwith "Should GC now but can't find target"
-    | `Level _, _ -> Lwt.return_unit
+    | _ -> Lwt.return_unit
 
   let rec exec_init (rs : cold_replay_state) (row : Def.row) (readonly, ()) =
     let rsref = ref None in

@@ -325,6 +325,11 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
     let+ commit = raw_commit ~time ?message context in
     Hash.to_context_hash (Store.Commit.hash commit)
 
+  let split index =
+    let repo = index.repo in
+    Store.split repo ;
+    Lwt.return ()
+
   let gc index context_hash =
     let open Lwt_syntax in
     let repo = index.repo in
@@ -336,12 +341,13 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         Fmt.failwith "%a: unknown context hash" Context_hash.pp context_hash
     | Some commit -> (
         let finished = function
-          | Ok (stats) ->
+          | Ok stats ->
               (* Fmt.epr "%a\n%!" (Repr.pp Irmin_pack_unix.Stats.Latest_gc.stats_t) stats; *)
               let x = Irmin_pack_unix.Stats.Latest_gc.total_duration stats in
               let y = Irmin_pack_unix.Stats.Latest_gc.finalise_duration stats in
               Events.(emit ending_gc)
-                ( Time.System.Span.of_seconds_exn x, Time.System.Span.of_seconds_exn y)
+                ( Time.System.Span.of_seconds_exn x,
+                  Time.System.Span.of_seconds_exn y )
           | Error (`Msg err) -> Events.(emit gc_failure) err
         in
         let commit_key = Store.Commit.key commit in
@@ -920,7 +926,8 @@ module Make (Encoding : module type of Tezos_context_encoding.Context) = struct
         (* All commit objects in the context are indexed, so it's safe to build a
            hash-only key referencing them. *)
         List.map
-          (fun h -> Hash.of_context_hash h |> Irmin_pack_unix.Pack_key.v_indexed)
+          (fun h ->
+            Hash.of_context_hash h |> Irmin_pack_unix.Pack_key.v_indexed)
           parents
       in
       let+ c = Store.Commit.v ctxt.index.repo ~info ~parents ctxt.tree in

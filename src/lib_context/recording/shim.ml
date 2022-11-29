@@ -99,14 +99,11 @@ end
 (** Seemlessly wrap [Impl] while notifying the [Recorders] of what's
     happening. *)
 module Make
-    (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX
-    )
-    (Recorders : sig
+    (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) (Recorders : sig
       module type RECORDER = Recorder.S with module Impl = Impl
 
       val l : (module RECORDER) list
-    end) :
-  Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX  = struct
+    end) : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX = struct
   (** Instanciate the tree tracker *)
   module Tree_traced = Make_tracked (struct
     type t = Impl.tree
@@ -398,7 +395,8 @@ module Make
 
     let raw_encoding = Impl.Tree.raw_encoding
 
-    let unshallow x = Impl.Tree.unshallow (Tree_traced.unwrap x) >|= Tree_traced.wrap
+    let unshallow x =
+      Impl.Tree.unshallow (Tree_traced.unwrap x) >|= Tree_traced.wrap
   end
 
   (* [_o i_ ___] - From context to tree *)
@@ -750,10 +748,12 @@ module Make
   (* Tracked with unhandled *)
 
   let length x y =
-    record_unhandled_lwt Recorder.Length @@ Impl.length (Context_traced.unwrap x) y
+    record_unhandled_lwt Recorder.Length
+    @@ Impl.length (Context_traced.unwrap x) y
 
   let tree_stats x =
-    record_unhandled_lwt Recorder.Stats @@ Impl.tree_stats (Tree_traced.unwrap x)
+    record_unhandled_lwt Recorder.Stats
+    @@ Impl.tree_stats (Tree_traced.unwrap x)
 
   let check_protocol_commit_consistency ~expected_context_hash
       ~given_protocol_hash ~author ~message ~timestamp ~test_chain_status
@@ -848,11 +848,11 @@ module Make
 
   let gc x y = Impl.gc (Index_abstract.unwrap x) y
 
-  let flush x =
-    Impl.flush (Context_traced.unwrap x) >|= Context_traced.wrap
+  let split x = Impl.split (Index_abstract.unwrap x)
+
+  let flush x = Impl.flush (Context_traced.unwrap x) >|= Context_traced.wrap
 
   let is_gc_allowed x = Impl.is_gc_allowed (Index_abstract.unwrap x)
 
-  let merkle_tree_v2 x y z =
-    Impl.merkle_tree_v2 (Context_traced.unwrap x) y z
+  let merkle_tree_v2 x y z = Impl.merkle_tree_v2 (Context_traced.unwrap x) y z
 end
