@@ -705,6 +705,8 @@ struct
   (*     t.previous_timer <- now *)
   (* end *)
 
+  let missed_gc = ref false
+
   let exec_commit rs ((time, message, c), hash) =
     let level = rs.current_row.level in
     Stat_recorder.set_stat_specs (specs_of_row rs.current_row) ;
@@ -723,15 +725,21 @@ struct
     in
     match (rs.config.gc_when, gc_target_opt) with
     | `Never, _ -> Lwt.return_unit
-    | `Every i, opt_target when rs.current_block_idx mod i = 0 -> (
+    | `Every i, opt_target
+      when rs.current_block_idx mod i = 0 || !missed_gc = true -> (
         let idx = rs.current_block_idx in
-        let* () = Context.split rs.index in
+        let* () =
+          if !missed_gc = false then Context.split rs.index else Lwt.return_unit
+        in
         rs.config.skip_gc <- rs.config.skip_gc - 1 ;
         match opt_target with
         | None ->
-            Format.printf "Skip no target at %i@.@." idx ;
+            if !missed_gc = false then
+              Format.printf "Skip no target at %i@.@." idx ;
+            missed_gc := true ;
             Lwt.return ()
         | Some target ->
+            missed_gc := false ;
             if rs.config.skip_gc > 0 then (
               Format.printf "Skip at %i@.@." idx ;
               Lwt.return ())
