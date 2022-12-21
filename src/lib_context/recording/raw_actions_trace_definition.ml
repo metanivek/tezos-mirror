@@ -323,13 +323,13 @@ let take : type a. int -> a Seq.t -> a list =
 (** Automatic classification of a raw trace file depending on the number and
       kind of [Init] operations in the first 10 rows of the trace. *)
 let type_of_file p =
-  let (_, _, reader) = open_reader p in
+  let _, _, reader = open_reader p in
   let l = take 10 reader in
   let ros = List.filter (function Init (true, _) -> true | _ -> false) l in
   let rws = List.filter (function Init (false, _) -> true | _ -> false) l in
   match (List.length ros, List.length rws) with
-  | (1, 0) -> `Ro
-  | (0, 1) -> `Rw
+  | 1, 0 -> `Ro
+  | 0, 1 -> `Rw
   | _ -> `Misc
 
 let trace_files_of_trace_directory ?filter prefix : (string * int) list =

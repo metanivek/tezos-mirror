@@ -405,7 +405,8 @@ module Writer (Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) = struct
 
     Def.append_row t.writer op
 
-  let add_gc_start_row t = Def.append_row t.writer (`Gc_start)
+  let add_gc_start_row t = Def.append_row t.writer `Gc_start
+
   let add_gc_row t stats = Def.append_row t.writer (`Gc_finalised stats)
 end
 
@@ -465,122 +466,118 @@ struct
     module Src = Irmin_pack_unix.Stats.Latest_gc
     module Dst = Def.Gc
 
-    let convert_duration Src.{ wall; sys; user } =
-      Dst.{ wall; sys; user }
+    let convert_duration Src.{wall; sys; user} = Dst.{wall; sys; user}
 
-    let convert_rusage Src.{
-        maxrss ;
-        minflt ;
-        majflt ;
-        inblock ;
-        oublock ;
-        nvcsw ;
-        nivcsw ;
-      } =
-      Dst.{
-        maxrss ;
-        minflt ;
-        majflt ;
-        inblock ;
-        oublock ;
-        nvcsw ;
-        nivcsw ;
-      }
+    let convert_rusage
+        Src.{maxrss; minflt; majflt; inblock; oublock; nvcsw; nivcsw} =
+      Dst.{maxrss; minflt; majflt; inblock; oublock; nvcsw; nivcsw}
 
-    let convert_ocaml_gc Src.{
-        minor_words ;
-        promoted_words ;
-        major_words ;
-        minor_collections ;
-        major_collections ;
-        heap_words ;
-        compactions ;
-        top_heap_words ;
-        stack_size ;
-      } =
-      Def.{
-        minor_words ;
-        promoted_words ;
-        major_words ;
-        minor_collections ;
-        major_collections ;
-        heap_words ;
-        compactions ;
-        top_heap_words ;
-        stack_size ;
+    let convert_ocaml_gc
+        Src.
+          {
+            minor_words;
+            promoted_words;
+            major_words;
+            minor_collections;
+            major_collections;
+            heap_words;
+            compactions;
+            top_heap_words;
+            stack_size;
+          } =
+      Def.
+        {
+          minor_words;
+          promoted_words;
+          major_words;
+          minor_collections;
+          major_collections;
+          heap_words;
+          compactions;
+          top_heap_words;
+          stack_size;
         }
 
-    let convert_index Irmin_pack_unix.Stats.Index.{
-        bytes_read ;
-        nb_reads ;
-        bytes_written ;
-        nb_writes ;
-        _
-      } = Dst.{
-        bytes_read ;
-        nb_reads ;
-        bytes_written ;
-        nb_writes ;
-      }
+    let convert_index
+        Irmin_pack_unix.Stats.Index.
+          {bytes_read; nb_reads; bytes_written; nb_writes; _} =
+      Dst.{bytes_read; nb_reads; bytes_written; nb_writes}
 
-    let convert_pack_store Irmin_pack_unix.Stats.Pack_store.{
-        appended_hashes ;
-        appended_offsets ;
-        total ;
-        from_staging ;
-        from_lru ;
-        from_pack_direct ;
-        from_pack_indexed ;
-          } = Dst.{
-        appended_hashes ;
-        appended_offsets ;
-        total ;
-        from_staging ;
-        from_lru ;
-        from_pack_direct ;
-        from_pack_indexed ;
+    let convert_pack_store
+        Irmin_pack_unix.Stats.Pack_store.
+          {
+            appended_hashes;
+            appended_offsets;
+            total;
+            from_staging;
+            from_lru;
+            from_pack_direct;
+            from_pack_indexed;
+          } =
+      Dst.
+        {
+          appended_hashes;
+          appended_offsets;
+          total;
+          from_staging;
+          from_lru;
+          from_pack_direct;
+          from_pack_indexed;
         }
 
-    let convert_inode Irmin_pack.Stats.Inode.{
-        inode_add ;
-        inode_remove ;
-        inode_of_seq ;
-        inode_of_raw ;
-        inode_rec_add ;
-        inode_rec_remove ;
-        inode_to_binv ;
-        inode_decode_bin ;
-        inode_encode_bin ;
-      } = Dst.{
-        inode_add ;
-        inode_remove ;
-        inode_of_seq ;
-        inode_of_raw ;
-        inode_rec_add ;
-        inode_rec_remove ;
-        inode_to_binv ;
-        inode_decode_bin ;
-        inode_encode_bin ;
-      }
+    let convert_inode
+        Irmin_pack.Stats.Inode.
+          {
+            inode_add;
+            inode_remove;
+            inode_of_seq;
+            inode_of_raw;
+            inode_rec_add;
+            inode_rec_remove;
+            inode_to_binv;
+            inode_decode_bin;
+            inode_encode_bin;
+          } =
+      Dst.
+        {
+          inode_add;
+          inode_remove;
+          inode_of_seq;
+          inode_of_raw;
+          inode_rec_add;
+          inode_rec_remove;
+          inode_to_binv;
+          inode_decode_bin;
+          inode_encode_bin;
+        }
 
-    let convert_step Src.{
-        duration;
-        rusage;
-        ocaml_gc;
-        index;
-        pack_store;
-        inode;
-      } =
-      Dst.{
-        duration = convert_duration duration;
-        rusage = convert_rusage rusage;
-        ocaml_gc = convert_ocaml_gc ocaml_gc;
-        index  = convert_index index;
-        pack_store  = convert_pack_store pack_store;
-        inode = convert_inode inode;
-      }
+    let convert_step Src.{duration; rusage; ocaml_gc; index; pack_store; inode}
+        =
+      Dst.
+        {
+          duration = convert_duration duration;
+          rusage = convert_rusage rusage;
+          ocaml_gc = convert_ocaml_gc ocaml_gc;
+          index = convert_index index;
+          pack_store = convert_pack_store pack_store;
+          inode = convert_inode inode;
+        }
 
-    let convert_worker Src.{
+    let convert_worker
+        Src.
+          {
+            initial_maxrss;
+            initial_heap_words;
+            initial_top_heap_words;
+            initial_stack_size;
+            steps;
+            files;
+            objects_traversed;
+            suffix_transfers;
+          } =
+      let steps = List.map (fun (k, v) -> (k, convert_step v)) steps in
+      Dst.
+        {
           initial_maxrss;
           initial_heap_words;
           initial_top_heap_words;
@@ -589,20 +586,24 @@ struct
           files;
           objects_traversed;
           suffix_transfers;
-        } =
-      let steps = List.map (fun (k, v) -> k, convert_step v) steps in
-      Dst.{
-        initial_maxrss;
-        initial_heap_words;
-        initial_top_heap_words;
-        initial_stack_size;
-        steps;
-        files;
-        objects_traversed;
-        suffix_transfers;
         }
 
-    let convert Src.{
+    let convert
+        Src.
+          {
+            generation;
+            commit_offset;
+            before_suffix_start_offset;
+            before_suffix_end_offset;
+            after_suffix_start_offset;
+            after_suffix_end_offset;
+            steps;
+            worker;
+          } =
+      let steps = List.map (fun (k, v) -> (k, convert_duration v)) steps in
+      let worker = convert_worker worker in
+      Dst.
+        {
           generation;
           commit_offset;
           before_suffix_start_offset;
@@ -611,19 +612,7 @@ struct
           after_suffix_end_offset;
           steps;
           worker;
-        } =
-      let steps = List.map (fun (k, v) -> k, convert_duration v) steps in
-      let worker = convert_worker worker in
-      Dst.{
-        generation;
-        commit_offset;
-        before_suffix_start_offset;
-        before_suffix_end_offset;
-        after_suffix_start_offset;
-        after_suffix_end_offset;
-        steps;
-        worker;
-      }
+        }
   end
 
   let report_gc_start () = Writer.add_gc_start_row (get_writer ())

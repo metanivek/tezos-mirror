@@ -791,7 +791,7 @@ module Worker_stats_per_step = struct
       ([|sname; stepname; "bytes read"|], index.bytes_read |> i);
       ([|sname; stepname; "writes"|], index.nb_writes |> i);
       ([|sname; stepname; "bytes written"|], index.bytes_written |> i);
-      ([|sname; stepname; "reads/sec"|], index.nb_reads |> j );
+      ([|sname; stepname; "reads/sec"|], index.nb_reads |> j);
       ([|sname; stepname; "bytes read/sec"|], index.bytes_read |> j);
       ([|sname; stepname; "writes/sec"|], index.nb_writes |> j);
       ([|sname; stepname; "bytes written/sec"|], index.bytes_written |> j);

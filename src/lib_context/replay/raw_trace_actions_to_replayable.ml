@@ -90,27 +90,27 @@ module Slice_input_seq = struct
     let is_first_commit acc lvl_opt =
       assert acc.looking_for_first ;
       match (first, lvl_opt) with
-      | (`Idx i, _) when i < acc.commits_seen ->
+      | `Idx i, _ when i < acc.commits_seen ->
           Fmt.failwith "First block idx should be greater than 0"
-      | (`Idx i, _) when i = acc.commits_seen -> true
-      | (`Idx _, _) -> false
-      | (`Level _, None) -> false
-      | (`Level i, Some j) when i > j -> false
-      | (`Level i, Some j) when i = j -> true
-      | (`Level _, Some _) ->
+      | `Idx i, _ when i = acc.commits_seen -> true
+      | `Idx _, _ -> false
+      | `Level _, None -> false
+      | `Level i, Some j when i > j -> false
+      | `Level i, Some j when i = j -> true
+      | `Level _, Some _ ->
           Fmt.failwith "Could not find requested first block level in input seq"
     in
     let is_last_commit acc lvl_opt =
       match (last, lvl_opt) with
-      | (`End, _) -> false
-      | (`Count n, _) when n > acc.commits_sent + 1 -> false
-      | (`Count n, _) when n = acc.commits_sent + 1 -> true
-      | (`Count _, _) ->
+      | `End, _ -> false
+      | `Count n, _ when n > acc.commits_sent + 1 -> false
+      | `Count n, _ when n = acc.commits_sent + 1 -> true
+      | `Count _, _ ->
           Fmt.failwith "The number of requested blocks should be greater than 0"
-      | (`Level _, None) -> false
-      | (`Level i, Some j) when i > j -> false
-      | (`Level i, Some j) when i = j -> true
-      | (`Level _, Some _) ->
+      | `Level _, None -> false
+      | `Level i, Some j when i > j -> false
+      | `Level i, Some j when i = j -> true
+      | `Level _, Some _ ->
           Fmt.failwith "Could not find requested last block level in input seq"
     in
     let rec aux acc =
@@ -131,7 +131,7 @@ module Slice_input_seq = struct
           match ev with
           | Def0.Commit _ | Commit_genesis_end _ ->
               let lvl_opt = block_level_opt_of_raw_row ev in
-              let (is_first, is_included, is_last) =
+              let is_first, is_included, is_last =
                 if acc.looking_for_first then
                   let is_first = is_first_commit acc lvl_opt in
                   (is_first, is_first, is_last_commit acc lvl_opt)
@@ -203,7 +203,7 @@ let event_infos =
   in
   let to_tree t = Def1.Tree t in
 
-  let (scopec, scopet) =
+  let scopec, scopet =
     let add_scope tbl k =
       match Hashtbl.find_opt tbl k with
       | Some 0 | None -> Fmt.failwith "Unexpected scope"
@@ -668,7 +668,7 @@ module Pass0 = struct
         match event_infos row with
         | {rank = `Use; tracker_ids; _} | {rank = `Control_flow; tracker_ids; _}
           ->
-            let (tree_ids, context_ids, commit_hashes) = tracker_ids in
+            let tree_ids, context_ids, commit_hashes = tracker_ids in
             let incr tbl k =
               match Hashtbl.find_opt tbl k with
               | None -> Hashtbl.add tbl k 1
@@ -714,7 +714,7 @@ module Pass0 = struct
       let events_since_commit = acc.events_since_commit + 1 in
       match row with
       | Init (ro, _) ->
-          assert (acc.should_init = `Absent);
+          assert (acc.should_init = `Absent) ;
           {
             acc with
             ingest_row = look_after_init idx;
@@ -727,21 +727,21 @@ module Pass0 = struct
       let open Def0 in
       let events_since_commit = acc.events_since_commit + 1 in
       match (event_infos row, row) with
-      | (_, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _))) ->
+      | _, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _)) ->
           {
             acc with
             ingest_row = look_for_commit (Some first_row_idx) (Some h);
             events_since_commit;
           }
-      | ({rank = `Use; _}, _) ->
+      | {rank = `Use; _}, _ ->
           {
             acc with
             ingest_row = look_for_commit_genesis first_row_idx false;
             events_since_commit;
           }
-      | ({rank = `Control_flow; _}, _)
-      | ({rank = `Ignore; _}, _)
-      | ({rank = `Crash; _}, _) ->
+      | {rank = `Control_flow; _}, _
+      | {rank = `Ignore; _}, _
+      | {rank = `Crash; _}, _ ->
           Fmt.failwith
             "Can't handle the following raw event after an init: %a"
             (Repr.pp Def0.row_t)
@@ -752,16 +752,16 @@ module Pass0 = struct
       let open Def0 in
       let events_since_commit = acc.events_since_commit + 1 in
       match (event_infos row, row) with
-      | ({rank = `Ignore; _}, _) -> acc
-      | (_, Patch_context_enter _) ->
+      | {rank = `Ignore; _}, _ -> acc
+      | _, Patch_context_enter _ ->
           assert (not uses_patch_context) ;
           {
             acc with
             ingest_row = look_for_commit_genesis first_row_idx true;
             events_since_commit;
           }
-      | ({rank = `Use; _}, _) -> {acc with events_since_commit}
-      | ({rank = `Control_flow; _}, Commit_genesis_end ((_, Ok h), _)) ->
+      | {rank = `Use; _}, _ -> {acc with events_since_commit}
+      | {rank = `Control_flow; _}, Commit_genesis_end ((_, Ok h), _) ->
           let block =
             {
               first_row_idx;
@@ -778,7 +778,7 @@ module Pass0 = struct
             summary_per_block_rev = block :: acc.summary_per_block_rev;
             should_init = acc.should_init;
           }
-      | ({rank = `Crash; _}, _) | ({rank = `Control_flow; _}, _) ->
+      | {rank = `Crash; _}, _ | {rank = `Control_flow; _}, _ ->
           Fmt.failwith
             "Can't handle the following raw event: %a"
             (Repr.pp Def0.row_t)
@@ -792,22 +792,22 @@ module Pass0 = struct
       let open Def0 in
       let events_since_commit = acc.events_since_commit + 1 in
       match (event_infos row, row) with
-      | ({rank = `Ignore; _}, _) -> acc
-      | (_, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _))) ->
+      | {rank = `Ignore; _}, _ -> acc
+      | _, (Checkout ((h, Some _), _) | Checkout_exn ((h, Ok _), _)) ->
           {
             acc with
             ingest_row = look_for_commit (Some idx) (Some h);
             events_since_commit;
           }
-      | (_, Get_protocol (_, h)) ->
+      | _, Get_protocol (_, h) ->
           {
             acc with
             ingest_row = look_for_commit (Some idx) (Some h);
             events_since_commit;
           }
-      | ({rank = `Use; _}, _) ->
+      | {rank = `Use; _}, _ ->
           {acc with events_since_commit; ingest_row = look_for_commit None None}
-      | (_, Commit (((_, m, _), h), _)) ->
+      | _, Commit (((_, m, _), h), _) ->
           let lvl = Option.map level_of_commit_message m in
           let first_row_idx =
             match first_row_idx with
@@ -843,9 +843,9 @@ module Pass0 = struct
             summary_per_block_rev = block :: acc.summary_per_block_rev;
             should_init = acc.should_init;
           }
-      | ({rank = `Control_flow; _}, _)
-      | (_, Patch_context_enter _)
-      | ({rank = `Crash; _}, _) ->
+      | {rank = `Control_flow; _}, _
+      | _, Patch_context_enter _
+      | {rank = `Crash; _}, _ ->
           Fmt.failwith
             "Can't handle the following raw event: %a"
             (Repr.pp Def0.row_t)
@@ -903,17 +903,17 @@ module Pass1 = struct
     let l =
       let map_middle prev_opt v next_opt =
         match (prev_opt, v, next_opt) with
-        | (_, `Present v, _) -> v
-        | (None, `Missing, None) ->
+        | _, `Present v, _ -> v
+        | None, `Missing, None ->
             Fmt.failwith
               "Can't interpolate block level when only 1 missing block"
-        | (None, `Missing, Some (`Missing | `Present _)) ->
+        | None, `Missing, Some (`Missing | `Present _) ->
             Fmt.failwith "Can't interpolate block level when first is absent"
-        | (Some (`Missing | `Present _), `Missing, None) ->
+        | Some (`Missing | `Present _), `Missing, None ->
             Fmt.failwith "Can't interpolate block level when last is absent"
-        | (Some `Missing, `Missing, _) | (_, `Missing, Some `Missing) ->
+        | Some `Missing, `Missing, _ | _, `Missing, Some `Missing ->
             Fmt.failwith "Can't interpolate block level when 2 in a row absent"
-        | (Some (`Present prev), `Missing, Some (`Present next)) ->
+        | Some (`Present prev), `Missing, Some (`Present next) ->
             if prev + 2 = next then prev + 1
             else if prev + 1 = next then
               Fmt.failwith "Can't interpolate orphan block level"
@@ -969,7 +969,7 @@ module Pass2 = struct
     | Pass1.{last_row_idx; level; uses_patch_context; _} :: tl ->
         if level mod 20_000 = 0 then
           Logs.app (fun l -> l "Pass2 - Dealing with block lvl %#d" level) ;
-        let (row_seq, rows) =
+        let row_seq, rows =
           Seq.Custom.take_up_to
             ~is_last:(fun (i, _) -> i = last_row_idx)
             row_seq
@@ -1045,11 +1045,11 @@ let run ?(first = `Idx 0) ?(last = `End) in_path out_chan =
       "Expecting exactly one RW trace file in %s. Got %d"
       in_path
       (List.length in_paths) ;
-  let (in_path, _pid) = List.hd in_paths in
+  let in_path, _pid = List.hd in_paths in
   Logs.app (fun l -> l "Using %s" in_path) ;
 
   (* Pass 0, segment blocks, summarise tracker ids *)
-  let (op_counts, ids, (seg, should_init)) =
+  let op_counts, ids, (seg, should_init) =
     let construct op_counts ids seg = (op_counts, ids, seg) in
     let pf0 =
       let open Trace_common.Parallel_folders in

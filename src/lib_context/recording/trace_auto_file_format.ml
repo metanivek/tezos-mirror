@@ -71,7 +71,7 @@ module type S =
   S
     with type File_format.magic := Magic.t
     with type ('a, 'b) File_format.version_converter :=
-          ('a, 'b) version_converter
+      ('a, 'b) version_converter
 
 (** Variable size integer.
 

@@ -112,10 +112,7 @@ let fetch page_i : string Lwt.t =
       match resp.Cohttp.Response.status with
       | `OK -> Cohttp_lwt.Body.to_string body
       | _ ->
-          Fmt.failwith
-            "Failed to fetch %s\n%a" url
-            Cohttp.Response.pp_hum
-            resp)
+          Fmt.failwith "Failed to fetch %s\n%a" url Cohttp.Response.pp_hum resp)
 
 (* mutates the filesystem (if necessary) *)
 let fetch t page_i : page Lwt.t =
@@ -147,9 +144,8 @@ let fetch t page_i : page Lwt.t =
     in
     let res =
       Array.to_list res
-      |> filter_2by2
-           (fun (h, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _)
-           -> h <> h')
+      |> filter_2by2 (fun (h, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _) ->
+             h <> h')
       |> Array.of_list
     in
     let count_exp = request_size in
@@ -160,8 +156,7 @@ let fetch t page_i : page Lwt.t =
       | 0 -> None
       | _ ->
           Some
-            ( Array.get res (count_got - 1)
-            |> fun (h, _, _, _, _, _, _, _) -> h )
+            (Array.get res (count_got - 1) |> fun (h, _, _, _, _, _, _, _) -> h)
     in
     iter_2by2
       (fun (h, _, _, _, _, _, _, _) (h', _, _, _, _, _, _, _) ->

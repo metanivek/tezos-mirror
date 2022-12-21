@@ -54,12 +54,10 @@ module Context_binary = Context.Make (Tezos_context_encoding.Context_binary)
 
 (** The context of a tezos node. Persisted to disk. *)
 module Context = struct
-
   let make_wrapped_context () :
       (module Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX) =
     let module M = struct
-      module Impl :
-        Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX =
+      module Impl : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX =
         Context.Make (Tezos_context_encoding.Context)
 
       module type RECORDER =
@@ -91,7 +89,8 @@ module Context = struct
                       (struct
                         let prefix = prefix
 
-                        let message = Tezos_context_helpers.Env.(v.stats_trace_message)
+                        let message =
+                          Tezos_context_helpers.Env.(v.stats_trace_message)
                       end))
     in
     (module Tezos_context_recording.Shim.Make
@@ -105,11 +104,14 @@ module Context = struct
               end))
 
   include
-    (val match Tezos_context_helpers.Env.(v.record_raw_actions_trace, v.record_stats_trace) with
-         | (`No, `No) ->
+    (val match
+           Tezos_context_helpers.Env.
+             (v.record_raw_actions_trace, v.record_stats_trace)
+         with
+         | `No, `No ->
              (module Context.Make (Tezos_context_encoding.Context)
              : Tezos_context_disk_sigs.TEZOS_CONTEXT_UNIX)
-         | (`Yes _, _) | (_, `Yes _) ->
+         | `Yes _, _ | _, `Yes _ ->
              (* Enable recording for one or both of the trace kind.
                 Seen from outside of [Tezos_context] these recordings are
                 seemless, except for:
@@ -118,6 +120,4 @@ module Context = struct
                 - the creation of files that will be closed [at_exit].
              *)
              make_wrapped_context ())
-
-
 end

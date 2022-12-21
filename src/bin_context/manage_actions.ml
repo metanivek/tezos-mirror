@@ -78,22 +78,22 @@ let to_replayable () path block_level_of_first_opt block_level_of_last_opt
     block_idx_of_first_opt block_count_opt =
   let first =
     match (block_idx_of_first_opt, block_level_of_first_opt) with
-    | (None, None) -> `Idx 0
-    | (Some _, Some _) ->
+    | None, None -> `Idx 0
+    | Some _, Some _ ->
         invalid_arg
           "block-idx-of-first and block-level-of-first must not be used \
            together"
-    | (Some i, None) -> `Idx i
-    | (None, Some i) -> `Level i
+    | Some i, None -> `Idx i
+    | None, Some i -> `Level i
   in
   let last =
     match (block_count_opt, block_level_of_last_opt) with
-    | (None, None) -> `End
-    | (Some _, Some _) ->
+    | None, None -> `End
+    | Some _, Some _ ->
         invalid_arg
           "block-count and block-level-of-last must not be used together"
-    | (Some i, None) -> `Count i
-    | (None, Some i) -> `Level i
+    | Some i, None -> `Count i
+    | None, Some i -> `Level i
   in
   Lwt_main.run (Trace_raw_actions_to_replayable.run ~first ~last path stdout) ;
   flush stdout
@@ -102,7 +102,7 @@ let list path =
   Rawdef.trace_files_of_trace_directory path
   |> List.iter (fun (path, _) ->
          Fmt.pr "Reading %s\n" path ;
-         let (_, (), row_seq) = Rawdef.open_reader path in
+         let _, (), row_seq = Rawdef.open_reader path in
          Seq.iter (Fmt.pr "%a\n" (Repr.pp Rawdef.row_t)) row_seq) ;
   Fmt.pr "%!"
 

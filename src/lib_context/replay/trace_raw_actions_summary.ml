@@ -32,7 +32,6 @@ module Option = Stdlib.Option
 module List = Stdlib.List
 
 module Def = Tezos_context_recording.Raw_actions_trace_definition
-
 module Trace_common = Tezos_context_recording.Trace_common
 (* TODO: Move [Trace_common] to replay *)
 
@@ -280,7 +279,7 @@ let ops_per_segment_folder =
       match row with
       | Def.Commit (((_, None, _), _), {after; _}) -> `Yes (`Commit None, after)
       | Commit (((_, Some message, _), _), {after; _}) ->
-          let (lvl, ops) =
+          let lvl, ops =
             match
               String.split_on_char ',' message
               |> List.map String.trim
@@ -334,7 +333,7 @@ let summarise' pid (row_seq : Def.row Seq.t) =
 
 let parse_trace pid p =
   Logs.app (fun l -> l "Parsing trace: %s" p) ;
-  let (_, (), row_seq) = Def.open_reader p in
+  let _, (), row_seq = Def.open_reader p in
   summarise' pid row_seq
 
 let parse_directory prefix =

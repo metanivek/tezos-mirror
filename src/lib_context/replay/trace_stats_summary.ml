@@ -929,9 +929,7 @@ let level_over_blocks_folder block_level_before block_count =
 let cpu_usage_folder initial_bag block_count =
   let acc0 =
     let vs = create_vs_smooth block_count [] in
-    ( initial_bag.Def.timestamp_wall,
-      initial_bag.Def.timestamp_cpu,
-      vs )
+    (initial_bag.Def.timestamp_wall, initial_bag.Def.timestamp_cpu, vs)
   in
   let accumulate (prev_wall, prev_cpu, vs) ((_, last_row, _) : block) =
     let after =
@@ -1302,7 +1300,7 @@ module Gcs_folder = struct
       |+ rusage_folder bag block_count
       |+ index_folder bag block_count
       |+ block_specs_folder block_level_before block_count
-      |+ cpu_usage_folder bag  block_count
+      |+ cpu_usage_folder bag block_count
       |> seal
     in
     List.fold_left Trace_common.Parallel_folders.accumulate pf0 blocks

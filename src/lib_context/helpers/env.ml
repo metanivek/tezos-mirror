@@ -39,7 +39,7 @@ type t = {
   record_raw_actions_trace : [`No | `Yes of string];
   record_stats_trace : [`No | `Yes of string];
   stats_trace_message : string option;
-  }
+}
 
 (* Caps the number of entries stored in the Irmin's index. As a
    trade-off, increasing this value will delay index merges, and thus,

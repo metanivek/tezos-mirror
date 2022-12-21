@@ -115,7 +115,7 @@ module type Trace_auto_file_format = sig
     S
       with type File_format.magic := Magic.t
       with type ('a, 'b) File_format.version_converter :=
-            ('a, 'b) version_converter
+        ('a, 'b) version_converter
 
   (** Derive the IO operations from a file format. *)
   module Make (File_format : FILE_FORMAT) :
