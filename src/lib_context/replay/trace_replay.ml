@@ -662,48 +662,48 @@ struct
     let close () = Lwt.return (Ok ())
   end
 
-  module Commit_stats = struct
-    let h = open_out "/tmp/tezos_replay_stats"
+  (* module Commit_stats = struct *)
+  (*   let h = open_out "/tmp/tezos_replay_stats" *)
 
-    type t = {mutable previous_timer : float; mutable times : float list}
+  (*   type t = {mutable previous_timer : float; mutable times : float list} *)
 
-    let t = {previous_timer = Unix.gettimeofday (); times = []}
+  (*   let t = {previous_timer = Unix.gettimeofday (); times = []} *)
 
-    let steps = 30.0
+  (*   let steps = 30.0 *)
 
-    let isteps = int_of_float steps
+  (*   let isteps = int_of_float steps *)
 
-    let time0 = isteps * int_of_float (t.previous_timer /. steps)
+  (*   let time0 = isteps * int_of_float (t.previous_timer /. steps) *)
 
-    let print_stats () : unit =
-      let arr = Array.of_list t.times in
-      t.times <- [] ;
-      Array.sort Float.compare arr ;
-      let len = Array.length arr in
-      let q0 = arr.(0) in
-      let q1 = arr.(len / 4) in
-      let q2 = arr.(len / 2) in
-      let q3 = arr.(len * 3 / 4) in
-      let q4 = arr.(len - 1) in
-      let time = isteps * int_of_float (t.previous_timer /. steps) in
-      Printf.fprintf
-        h
-        "%i\t%i\t%f\t%f\t%f\t%f\t%f\n%!"
-        (time - time0)
-        len
-        q0
-        q1
-        q2
-        q3
-        q4
+  (*   let print_stats () : unit = *)
+  (*     let arr = Array.of_list t.times in *)
+  (*     t.times <- [] ; *)
+  (*     Array.sort Float.compare arr ; *)
+  (*     let len = Array.length arr in *)
+  (*     let q0 = arr.(0) in *)
+  (*     let q1 = arr.(len / 4) in *)
+  (*     let q2 = arr.(len / 2) in *)
+  (*     let q3 = arr.(len * 3 / 4) in *)
+  (*     let q4 = arr.(len - 1) in *)
+  (*     let time = isteps * int_of_float (t.previous_timer /. steps) in *)
+  (*     Printf.fprintf *)
+  (*       h *)
+  (*       "%i\t%i\t%f\t%f\t%f\t%f\t%f\n%!" *)
+  (*       (time - time0) *)
+  (*       len *)
+  (*       q0 *)
+  (*       q1 *)
+  (*       q2 *)
+  (*       q3 *)
+  (*       q4 *)
 
-    let add () =
-      let now = Unix.gettimeofday () in
-      if int_of_float (t.previous_timer /. steps) <> int_of_float (now /. steps)
-      then print_stats () ;
-      t.times <- (now -. t.previous_timer) :: t.times ;
-      t.previous_timer <- now
-  end
+  (*   let add () = *)
+  (*     let now = Unix.gettimeofday () in *)
+  (*     if int_of_float (t.previous_timer /. steps) <> int_of_float (now /. steps) *)
+  (*     then print_stats () ; *)
+  (*     t.times <- (now -. t.previous_timer) :: t.times ; *)
+  (*     t.previous_timer <- now *)
+  (* end *)
 
   let exec_commit rs ((time, message, c), hash) =
     let level = rs.current_row.level in
@@ -713,8 +713,8 @@ struct
     let* hash' = Context.commit ~time ?message c in
     on_rhs_hash rs hash hash' ;
     Stdlib.Hashtbl.add rs.hash_per_level level hash' ;
-    Commit_stats.add () ;
 
+    (* Commit_stats.add () ; *)
     let gc_target_opt =
       match rs.config.gc_target with
       | `Distance i -> Stdlib.Hashtbl.find_opt rs.hash_per_level (level - i)
