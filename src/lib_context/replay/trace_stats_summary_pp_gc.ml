@@ -904,7 +904,7 @@ module File_sizes = struct
     let tot1 = get "prefix" +. suffix1 +. get "mapping" in
     let first_loop, extra_loops =
       match gc.worker.suffix_transfers with
-      | [] -> assert false
+      | [] -> (0., 0.)
       | hd :: tl ->
           ( Int63.to_float hd,
             List.map Int63.to_float tl |> List.fold_left ( +. ) 0. )
