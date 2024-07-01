@@ -132,15 +132,20 @@ let can_apply_blueprint t =
       true
   | Proxy -> false
 
-let connection_arguments ?rpc_addr ?rpc_port () =
-  let open Cli_arg in
+let connection_arguments ?rpc_addr ?rpc_port ?runner () =
   let rpc_port =
     match rpc_port with None -> Port.fresh () | Some port -> port
   in
-  ( ["--rpc-port"; string_of_int rpc_port]
-    @ optional_arg "rpc-addr" Fun.id rpc_addr,
-    Option.value ~default:Constant.default_host rpc_addr,
-    rpc_port )
+  let rpc_host =
+    match rpc_addr with Some addr -> addr | None -> Runner.address runner
+  in
+  let rpc_addr_arg =
+    match (rpc_addr, runner) with
+    | None, None -> []
+    | None, Some _ -> ["--rpc-addr"; Unix.(string_of_inet_addr inet_addr_any)]
+    | Some addr, _ -> ["--rpc-addr"; addr]
+  in
+  (["--rpc-port"; string_of_int rpc_port] @ rpc_addr_arg, rpc_host, rpc_port)
 
 let trigger_ready sc_node value =
   let pending = sc_node.persistent_state.pending_ready in
@@ -422,7 +427,7 @@ let wait_for_tx_pool_add_transaction ?timeout evm_node =
 let create ?(path = Uses.path Constant.octez_evm_node) ?name ?runner
     ?(mode = Proxy) ?data_dir ?rpc_addr ?rpc_port endpoint =
   let arguments, rpc_addr, rpc_port =
-    connection_arguments ?rpc_addr ?rpc_port ()
+    connection_arguments ?rpc_addr ?rpc_port ?runner ()
   in
   let new_name () =
     match mode with
@@ -465,12 +470,16 @@ let name evm_node = evm_node.name
 
 let rpc_port evm_node = evm_node.persistent_state.rpc_port
 
-let data_dir evm_node = ["--data-dir"; evm_node.persistent_state.data_dir]
+let data_dir evm_node = evm_node.persistent_state.data_dir
+
+let data_dir_arg evm_node = ["--data-dir"; evm_node.persistent_state.data_dir]
 
 (* assume a valid config for the given command and uses new latest run
    command format. *)
 let run_args evm_node =
-  let shared_args = data_dir evm_node @ evm_node.persistent_state.arguments in
+  let shared_args =
+    data_dir_arg evm_node @ evm_node.persistent_state.arguments
+  in
   let mode_args =
     match evm_node.persistent_state.mode with
     | Proxy -> ["run"; "proxy"]
@@ -591,7 +600,9 @@ module Config_file = struct
 end
 
 let spawn_init_config ?(extra_arguments = []) evm_node =
-  let shared_args = data_dir evm_node @ evm_node.persistent_state.arguments in
+  let shared_args =
+    data_dir_arg evm_node @ evm_node.persistent_state.arguments
+  in
   let time_between_blocks_fmt = function
     | Nothing -> "none"
     | Time_between_blocks f -> Format.sprintf "%.3f" f
@@ -773,12 +784,11 @@ let spawn_init_config ?(extra_arguments = []) evm_node =
   spawn_command evm_node @@ ["init"; "config"] @ mode_args @ shared_args
   @ extra_arguments
 
-let endpoint ?(private_ = false) (evm_node : t) =
+let rpc_endpoint ?(local = false) ?(private_ = false) (evm_node : t) =
   let addr, port, path =
     let host =
-      match evm_node.persistent_state.runner with
-      | None -> Constant.default_host
-      | Some runner -> Runner.address (Some runner)
+      if local then Constant.default_host
+      else Runner.address evm_node.persistent_state.runner
     in
     if private_ then
       match evm_node.persistent_state.mode with
@@ -797,12 +807,11 @@ let endpoint ?(private_ = false) (evm_node : t) =
       | Threshold_encryption_observer _ ->
           Test.fail
             "Threshold encryption observer doesn't have a private RPC server"
-    else
-      ( evm_node.persistent_state.rpc_addr,
-        evm_node.persistent_state.rpc_port,
-        "" )
+    else (host, evm_node.persistent_state.rpc_port, "")
   in
   Format.sprintf "http://%s:%d%s" addr port path
+
+let endpoint = rpc_endpoint ?local:None
 
 let patch_config_with_experimental_feature ?(wal_sqlite_journal_mode = false)
     ?(drop_duplicate_when_injection = false) =
@@ -846,7 +855,7 @@ let init_from_rollup_node_data_dir ?reconstruct evm_node rollup_node =
     spawn_command
       evm_node
       (["init"; "from"; "rollup"; "node"; rollup_node_data_dir]
-      @ data_dir evm_node
+      @ data_dir_arg evm_node
       @ Cli_arg.optional_arg "reconstruct" Fun.id reconstruct)
   in
   Process.check process
@@ -920,7 +929,7 @@ let transform_dump ~dump_json ~dump_rlp =
 
 let reset evm_node ~l2_level =
   let args =
-    ["reset"; "at"; string_of_int l2_level; "--force"] @ data_dir evm_node
+    ["reset"; "at"; string_of_int l2_level; "--force"] @ data_dir_arg evm_node
   in
   let process = Process.spawn evm_node.path @@ args in
   Process.check process
@@ -1064,10 +1073,8 @@ module Agent = struct
       endpoint agent =
     let* path = Agent.copy agent ~source:path in
     let runner = Agent.runner agent in
-    let rpc_addr = "0.0.0.0" in
     let rpc_port = Agent.next_available_port agent in
-    create ?name ~path ~runner ?data_dir ~rpc_addr ~rpc_port ?mode endpoint
-    |> Lwt.return
+    create ?name ~path ~runner ?data_dir ~rpc_port ?mode endpoint |> Lwt.return
 
   let init ?patch_config ?name ?mode ?data_dir rollup_node agent =
     let* evm_node = create ?name ?mode ?data_dir rollup_node agent in
