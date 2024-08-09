@@ -39,6 +39,10 @@ Node
   /chains/<chain>/mempool/pending_operations`` which allows operations
   to be filtered by source. (MR :gl:`!11278`)
 
+- Add an ``operation_hash`` argument to ``GET
+  /chains/<chain>/mempool/pending_operations`` which allows operations
+  to be filtered by hash. (MR :gl:`!13977`)
+
 - Add an RPC
   ``/chains/<chain>/blocks/<block>/context/smart_rollups/smart_rollup/<sr1...>/consumed_outputs/<outbox_level>``
   that returns the consumed output's indexes for the given outbox
@@ -84,6 +88,10 @@ Node
   :gl:`!13879`)
 
 - Removed ParisB mempool plugin. (MR :gl:`!14031`)
+
+- Introduced the external RPC process to reduce the load of the node
+  when answering heavy RPCs. This can be enabled using
+  ``--external-rpc-addr`` (MR :gl:`!9490`)
 
 Client
 ------
