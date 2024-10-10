@@ -13,6 +13,9 @@ type error += RPC_Port_already_in_use of P2p_point.Id.t list
 
 type error += Invalid_sandbox_file of string
 
+(** Profiler for RPC server. *)
+module Profiler = (val Profiler.wrap Shell_profiling.rpc_server_profiler)
+
 let () =
   register_error_kind
     `Permanent
@@ -452,7 +455,14 @@ let launch_rpc_server ?middleware (config : Config_file.t) dir rpc_server_kind
     if path = "/metrics" then
       let*! response = Metrics_server.callback conn req body in
       Lwt.return (`Response response)
-    else Tezos_rpc_http_server.RPC_server.resto_callback server conn req body
+    else
+      (* Every call on endpoints which is not in [/metrics]
+         path will be logged inside the RPC report. *)
+      Tezos_rpc_http_server.RPC_server.resto_callback
+        server
+        conn
+        req
+        body [@profiler.span_s [path]]
   in
   let update_metrics uri meth =
     Prometheus.Summary.(time (labels rpc_metrics [uri; meth]) Sys.time)
@@ -724,19 +734,20 @@ let run ?verbosity ?sandbox ?target ?(cli_warnings = [])
     Tezos_base_unix.Internal_event_unix.init ~config:internal_events ()
   in
   let () =
-    match Option.map String.lowercase_ascii @@ Sys.getenv_opt "PROFILING" with
-    | Some (("true" | "on" | "yes" | "terse" | "detailed" | "verbose") as mode)
-      ->
-        let max_lod =
-          match mode with
-          | "detailed" -> Profiler.Detailed
-          | "verbose" -> Profiler.Verbose
-          | _ -> Profiler.Terse
-        in
+    match Tezos_base.Profiler.parse_profiling_vars config.data_dir with
+    | Some max_lod, output_dir ->
         let profiler_maker =
-          Tezos_shell.Profiler_directory.profiler_maker config.data_dir max_lod
+          Tezos_shell.Profiler_directory.profiler_maker output_dir max_lod
         in
-        Shell_profiling.activate_all ~profiler_maker
+        Shell_profiling.activate_all ~profiler_maker ;
+        let context_instance =
+          Tezos_base.Profiler.instance
+            Tezos_base_unix.Simple_profiler.auto_write_to_txt_file
+            Filename.Infix.(output_dir // "context_profiling.txt", max_lod)
+        in
+        Tezos_protocol_environment.Environment_profiler.Context_ops_profiler
+        .plug
+          context_instance
     | _ -> ()
   in
   let*! () =

@@ -32,7 +32,7 @@ module rec Constants : sig
       an attribute list (usually used to remove these attributes
       from the list of attributes attached to an AST node *)
   val filter_out_all_handled_attributes :
-    Parsetree.attribute list -> Parsetree.attribute list
+    Ppxlib.attribute list -> Ppxlib.attribute list
 end
 
 and Rewriter : sig
@@ -50,6 +50,7 @@ and Rewriter : sig
     | Aggregate
     | Aggregate_f
     | Aggregate_s
+    | Custom
     | Mark
     | Record
     | Record_f
@@ -80,5 +81,5 @@ and Rewriter : sig
 
   (** [extract_rewriters attributes] inspects the given list of [attributes]
       and returns the rewriters that are handled by this ppx. *)
-  val extract_rewriters : Parsetree.attribute list -> t list
+  val extract_rewriters : Ppxlib.attribute list -> t list
 end

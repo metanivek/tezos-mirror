@@ -521,12 +521,9 @@ let octez_rust_deps =
               [S "source_tree"; S "src"];
               [S "source_tree"; S "../riscv"];
               [S "source_tree"; S "../kernel_sdk"];
-              [S "file"; S "../../etherlink/lib_wasm_runtime/Cargo.toml"];
-              [S "file"; S "../../etherlink/lib_wasm_runtime/build.rs"];
-              [
-                S "glob_files_rec";
-                S "../../etherlink/lib_wasm_runtime/src/**.rs";
-              ];
+              [S "file"; S "../../src/lib_wasm_runtime/Cargo.toml"];
+              [S "file"; S "../../src/lib_wasm_runtime/build.rs"];
+              [S "glob_files_rec"; S "../../src/lib_wasm_runtime/src/**.rs"];
             ];
             [S "action"; [S "no-infer"; [S "bash"; S "./build.sh"]]];
           ];
@@ -1448,7 +1445,7 @@ let _octez_stdlib_unix_test =
     ]
     ~path:"src/lib_stdlib_unix/test/"
     ~opam:"octez-libs"
-    ~preprocess:(pps bam_ppx)
+    ~preprocess:(ppses [ppx_hash; bam_ppx])
     ~deps:
       [
         octez_error_monad |> open_ |> open_ ~m:"TzLwtreslib";
@@ -3214,10 +3211,13 @@ let octez_brassaia_context =
       ]
 
 let octez_duo_context_lib =
+  let (PPX {preprocess; preprocessor_deps}) = ppx_profiler in
   octez_shell_lib
     "duo-context-lib"
     ~internal_name:"tezos_duo_context_lib"
     ~path:"src/lib_protocol_environment/duo_context_lib"
+    ~preprocess
+    ~preprocessor_deps
     ~deps:
       [
         octez_base |> open_ ~m:"TzPervasives";
@@ -3249,11 +3249,14 @@ let _octez_protocol_environment_tests =
       ]
 
 let octez_context_ops =
+  let (PPX {preprocess; preprocessor_deps}) = ppx_profiler in
   octez_shell_lib
     "context-ops"
     ~internal_name:"tezos_context_ops"
     ~path:"src/lib_protocol_environment/context_ops"
     ~synopsis:"Backend-agnostic operations on contexts"
+    ~preprocess
+    ~preprocessor_deps
     ~deps:
       [
         octez_base |> open_ ~m:"TzPervasives";
@@ -3698,11 +3701,14 @@ let octez_rpc_http =
     ~modules:["RPC_client_errors"; "media_type"]
 
 let octez_rpc_http_client =
+  let (PPX {preprocess; preprocessor_deps}) = ppx_profiler in
   octez_lib
     "rpc-http-client"
     ~internal_name:"tezos-rpc-http-client"
     ~path:"src/lib_rpc_http"
     ~synopsis:"Library of auto-documented RPCs (http client)"
+    ~preprocess
+    ~preprocessor_deps
     ~deps:
       [
         octez_base |> open_ ~m:"TzPervasives";
@@ -3710,7 +3716,7 @@ let octez_rpc_http_client =
         octez_rpc;
         octez_rpc_http |> open_;
       ]
-    ~modules:["RPC_client"]
+    ~modules:["RPC_client"; "RPC_profiler"]
 
 let octez_rpc_http_client_unix =
   octez_lib
@@ -4487,6 +4493,7 @@ let octez_dal_node_lib =
         octez_crypto_dal |> open_;
         octez_p2p |> open_;
         octez_p2p_services |> open_;
+        octez_sqlite |> open_;
       ]
 
 let octez_dal_node_gossipsub_lib =
@@ -4645,12 +4652,65 @@ let octez_smart_rollup_lib =
         yaml;
       ]
 
+let rollup_node_sqlite_migrations =
+  octez_l2_lib
+    "rollup_node_sqlite_migrations"
+    ~path:"src/lib_smart_rollup_node/migrations"
+    ~synopsis:"SQL migrations for the Rollup node store"
+    ~deps:[octez_base |> open_ ~m:"TzPervasives"; caqti_lwt; crunch; re]
+    ~dune:
+      Dune.
+        [
+          [
+            S "rule";
+            [S "target"; S "migrations.ml"];
+            [S "deps"; [S "glob_files"; S "*.sql"]];
+            [
+              S "action";
+              [
+                S "run";
+                S "ocaml-crunch";
+                S "-e";
+                S "sql";
+                S "-m";
+                S "plain";
+                S "-o";
+                S "%{target}";
+                S "-s";
+                S ".";
+              ];
+            ];
+          ];
+        ]
+
+let octez_smart_rollup_node_store_lib_modules =
+  ["store_version"; "sql_store"; "store_v5"; "store"]
+
+let octez_smart_rollup_node_store_lib =
+  octez_l2_lib
+    "octez-smart-rollup-node-lib.store"
+    ~internal_name:"octez_smart_rollup_node_store"
+    ~path:"src/lib_smart_rollup_node"
+    ~synopsis:"Octez: library for accessing the store of the Smart Rollup node"
+    ~modules:octez_smart_rollup_node_store_lib_modules
+    ~deps:
+      [
+        octez_base |> open_ ~m:"TzPervasives" |> open_;
+        octez_base_unix;
+        octez_stdlib_unix |> open_;
+        octez_layer2_store |> open_;
+        rollup_node_sqlite_migrations;
+        octez_sqlite |> open_;
+        octez_smart_rollup_lib |> open_;
+      ]
+
 let octez_smart_rollup_node_lib =
   public_lib
     "octez-smart-rollup-node-lib"
     ~internal_name:"octez_smart_rollup_node"
     ~path:"src/lib_smart_rollup_node"
     ~synopsis:"Octez: library for Smart Rollup node"
+    ~all_modules_except:octez_smart_rollup_node_store_lib_modules
     ~deps:
       [
         octez_base |> open_ ~m:"TzPervasives" |> open_;
@@ -4669,6 +4729,7 @@ let octez_smart_rollup_node_lib =
         octez_injector_lib |> open_;
         octez_version_value |> open_;
         octez_layer2_store |> open_;
+        octez_smart_rollup_node_store_lib |> open_;
         octez_crawler |> open_;
         octez_workers |> open_;
         octez_smart_rollup_lib |> open_;
@@ -6309,6 +6370,7 @@ let hash = Protocol.hash
             octez_context |> open_;
             octez_context_memory |> if_ (N.(number >= 012) && N.(number <= 019));
             octez_rpc_http_client_unix |> if_ N.(number >= 011);
+            octez_rpc_http_client |> if_ N.(number >= 011) |> open_;
             octez_context_ops |> if_ N.(number >= 011) |> open_;
             octez_rpc;
             octez_rpc_http |> open_;
@@ -7546,6 +7608,7 @@ let _octez_node =
     in
     List.map deps_for_protocol Protocol.all |> List.flatten
   in
+  let (PPX {preprocess; preprocessor_deps}) = ppx_profiler in
   public_exe
     "octez-node"
     ~path:"src/bin_node"
@@ -7553,6 +7616,8 @@ let _octez_node =
     ~synopsis:"Tezos: `octez-node` binary"
     ~release_status:Released
     ~with_macos_security_framework:true
+    ~preprocess
+    ~preprocessor_deps
     ~deps:
       ([
          octez_base |> open_ ~m:"TzPervasives" |> open_;
@@ -8157,6 +8222,7 @@ let _octez_smart_rollup_node_lib_tests =
         octez_test_helpers |> open_;
         octez_layer2_store |> open_;
         octez_smart_rollup_lib |> open_;
+        octez_smart_rollup_node_store_lib |> open_;
         octez_smart_rollup_node_lib |> open_;
         helpers |> open_;
         alcotezt;

@@ -17,6 +17,9 @@ module rec Constants : sig
   (** Constant representing [@profiler.aggregate_s] *)
   val aggregate_s_constant : t
 
+  (** Constant representing [@profiler.custom] *)
+  val custom_constant : t
+
   (** Constant representing [@profiler.mark] *)
   val mark_constant : t
 
@@ -52,16 +55,16 @@ module rec Constants : sig
   val get_attribute : t -> string
 
   val filter_out_all_handled_attributes :
-    Parsetree.attribute list -> Parsetree.attribute list
+    Ppxlib.attribute list -> Ppxlib.attribute list
 end = struct
   (* This rewriter handles ppxes starting with profiler. *)
   let namespace = "profiler"
 
-  type t = {action : string; attribute_name : string}
+  type t = {attribute_name : string}
 
   let create_constant action =
     let attribute_name = namespace ^ "." ^ action in
-    {action; attribute_name}
+    {attribute_name}
 
   (* [@profiler.aggregate] *)
   let aggregate_constant = create_constant "aggregate"
@@ -71,6 +74,9 @@ end = struct
 
   (* [@profiler.aggregate_s] *)
   let aggregate_s_constant = create_constant "aggregate_s"
+
+  (* [@profiler.custom] *)
+  let custom_constant = create_constant "custom"
 
   (* [@profiler.mark] *)
   let mark_constant = create_constant "mark"
@@ -113,6 +119,7 @@ end = struct
       aggregate_constant;
       aggregate_f_constant;
       aggregate_s_constant;
+      custom_constant;
       mark_constant;
       record_constant;
       record_f_constant;
@@ -148,6 +155,7 @@ and Rewriter : sig
     | Aggregate
     | Aggregate_f
     | Aggregate_s
+    | Custom
     | Mark
     | Record
     | Record_f
@@ -168,12 +176,13 @@ and Rewriter : sig
 
   val get_location : t -> Ppxlib.location
 
-  val extract_rewriters : Parsetree.attribute list -> t list
+  val extract_rewriters : Ppxlib.attribute list -> t list
 end = struct
   type action =
     | Aggregate
     | Aggregate_f
     | Aggregate_s
+    | Custom
     | Mark
     | Record
     | Record_f
@@ -201,6 +210,11 @@ end = struct
     match Key.content key with
     | Key.Apply _ | Key.Ident _ | Key.String _ -> Aggregate_s
     | _ -> Error.error location (Error.Invalid_aggregate key)
+
+  let custom key location =
+    match Key.content key with
+    | Key.Apply _ -> Custom
+    | _ -> Error.error location (Error.Invalid_custom key)
 
   let mark key location =
     match Key.content key with
@@ -259,6 +273,7 @@ end = struct
     | Aggregate -> Constants.aggregate_constant
     | Aggregate_f -> Constants.aggregate_f_constant
     | Aggregate_s -> Constants.aggregate_s_constant
+    | Custom -> Constants.custom_constant
     | Mark -> Constants.mark_constant
     | Record -> Constants.record_constant
     | Record_f -> Constants.record_f_constant
@@ -280,6 +295,7 @@ end = struct
       (Constants.aggregate_constant, aggregate);
       (Constants.aggregate_f_constant, aggregate_f);
       (Constants.aggregate_s_constant, aggregate_s);
+      (Constants.custom_constant, custom);
       (Constants.mark_constant, mark);
       (Constants.record_constant, record);
       (Constants.record_f_constant, record_f);
@@ -326,7 +342,10 @@ end = struct
           | Span_f -> "span_f"
           | Span_s -> "span_s"
           | Stamp -> "stamp"
-          | Stop -> "stop" )
+          | Stop -> "stop"
+          | Custom ->
+              Stdlib.failwith
+                "A custom function shouldn't be called with a leading module" )
     in
     Ppxlib.Ast_helper.Exp.ident {txt = lident; loc}
 
@@ -416,7 +435,7 @@ end = struct
         (* [@ppx] *)
         Key.
           {level_of_detail = None; profiler_module = None; content = Key.Empty}
-    | _ -> Error.error loc (Invalid_payload payload)
+    | _ -> Error.error loc Invalid_payload
 
   let of_attribute ({Ppxlib.attr_payload; attr_loc; _} as attribute) =
     match

@@ -118,6 +118,7 @@ datadog_pipeline_trace:
   - gcp
   dependencies:
   - oc.docker:ci:amd64
+  allow_failure: true
   timeout: 60 minutes
   interruptible: false
   script:
@@ -216,6 +217,7 @@ oc.misc_checks:
   - ./scripts/ci/lint_misc_check.sh
   - scripts/check_wasm_pvm_regressions.sh check
   - etherlink/scripts/check_evm_store_migrations.sh check
+  - ./scripts/check_rollup_node_sql_migrations.sh check
 
 check_jsonnet_fmt:
   image: ${jsonnet_image_name}:${jsonnet_image_tag}
@@ -521,7 +523,7 @@ wasm-runtime-check:
   - eval $(opam env)
   - . ./scripts/ci/sccache-start.sh
   script:
-  - etherlink/lib_wasm_runtime/lint.sh
+  - src/lib_wasm_runtime/lint.sh
   after_script:
   - ./scripts/ci/sccache-stop.sh
   variables:

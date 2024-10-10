@@ -466,6 +466,7 @@ let jobs pipeline_type =
            "./scripts/ci/lint_misc_check.sh";
            "scripts/check_wasm_pvm_regressions.sh check";
            "etherlink/scripts/check_evm_store_migrations.sh check";
+           "./scripts/check_rollup_node_sql_migrations.sh check";
          ]
         @
         (* The license check only applies to new files (in the sense
@@ -659,7 +660,7 @@ let jobs pipeline_type =
              ~source_version:true
              ~eval_opam:true
              [])
-        ["etherlink/lib_wasm_runtime/lint.sh"]
+        ["src/lib_wasm_runtime/lint.sh"]
       |> enable_cargo_cache |> enable_sccache
     in
     let job_ocaml_check : tezos_job =
@@ -1247,7 +1248,7 @@ let jobs pipeline_type =
     in
     (* Tezt jobs.
 
-       The tezt jobs are split into a set of special-purpose jobs running the
+       The Tezt jobs are split into a set of special-purpose jobs running the
        tests of the corresponding tag:
         - [tezt-memory-3k]: runs the jobs with tag [memory_3k],
         - [tezt-memory-4k]: runs the jobs with tag [memory_4k],

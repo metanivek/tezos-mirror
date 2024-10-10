@@ -7,24 +7,24 @@
 
 type error =
   | Invalid_action of string
-  | Invalid_payload of Parsetree.payload
+  | Invalid_payload
   | Invalid_aggregate of Key.t
+  | Invalid_custom of Key.t
   | Invalid_mark of Key.t
   | Invalid_record of Key.t
   | Invalid_span of Key.t
   | Invalid_stop of Key.t
   | Improper_field of (Longident.t Location.loc * Ppxlib.expression)
   | Improper_let_binding of Ppxlib.expression
-  | Improper_record of (Ppxlib.Ast.longident_loc * Parsetree.expression) list
+  | Improper_record of (Ppxlib.Ast.longident_loc * Ppxlib.expression) list
   | Malformed_attribute of Ppxlib.expression
 
 let pp_field ppf (lident, expr) =
   Format.fprintf
     ppf
-    "%a = %a"
-    Pprintast.longident
-    lident.Ppxlib.txt
-    Pprintast.expression
+    "%s = %a"
+    (Ppxlib.Longident.name lident.Ppxlib.txt)
+    Ppxlib.Pprintast.expression
     expr
 
 let error loc err =
@@ -38,29 +38,35 @@ let error loc err =
              span_f, span_s, stamp and stop]@,\
              Found: %s@."
             action )
-    | Invalid_payload payload ->
+    | Invalid_payload ->
         ( "Invalid or empty attribute payload.",
           Format.asprintf
             "@[<v 2>Accepted attributes payload are:@,\
              - `[@profiler.aggregate_* <string or ident>]@,\
-             - `[@profiler.mark [<list of strings>]]@,\
+             - `[@profiler.mark [<list of strings or ident>]]@,\
              - `[@profiler.record_* <string or ident>]@,\
-             Found: %a@."
-            Pprintast.payload
-            payload )
+             - `[@profiler.span_* <list of strings or ident>]@." )
     | Invalid_aggregate key ->
         ( "Invalid aggregate.",
           Format.asprintf
             "@[<v 2>A [@profiler.aggregate_*] attribute must be a string or an \
              identifier.@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
+            Key.pp
+            key )
+    | Invalid_custom key ->
+        ( "Invalid custom.",
+          Format.asprintf
+            "@[<v 2>A [@profiler.custom] attribute must be a function \
+             application.@,\
+             Found: @[<v 0>%a@]@."
             Key.pp
             key )
     | Invalid_mark key ->
         ( "Invalid mark.",
           Format.asprintf
             "@[<v 2>A [@profiler.mark] attribute must be a string list.@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
             Key.pp
             key )
     | Invalid_record key ->
@@ -68,21 +74,21 @@ let error loc err =
           Format.asprintf
             "@[<v 2>A [@profiler.record_*] attribute must be a string or an \
              identifier.@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
             Key.pp
             key )
     | Invalid_span key ->
         ( "Invalid span.",
           Format.asprintf
             "@[<v 2>A [@profiler.span_*] attribute must be a string list.@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
             Key.pp
             key )
     | Invalid_stop key ->
         ( "Invalid stop.",
           Format.asprintf
             "@[<v 2>A [@profiler.stop] should not have an attribute.@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
             Key.pp
             key )
     | Improper_record record ->
@@ -93,7 +99,7 @@ let error loc err =
              it. Possible options are:@,\
              - the level_of_detail@,\
              - the profiler_module@,\
-             Found %a@."
+             Found: { @[<v 2>%a@] }@."
             Format.(
               pp_print_list
                 ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@,")
@@ -105,14 +111,14 @@ let error loc err =
             "@[<v 2>Expecting a field specifying either:@,\
              - the level_of_detail@,\
              - the profiler_module@,\
-             Found %a@."
+             Found: @[<v 0>%a@]@."
             pp_field
             field )
     | Improper_let_binding expr ->
         ( "Improper let binding expression.",
           Format.asprintf
             "@[<v 2>Expecting a let binding expression.@,Found %a@."
-            Pprintast.expression
+            Ppxlib.Pprintast.expression
             expr )
     | Malformed_attribute expr ->
         ( "Malformed attribute.",
@@ -121,7 +127,7 @@ let error loc err =
              - `[@profiling.mark [<list of strings>]]'@,\
              - `[@profiling.aggregate_* <string or ident>]@,\
              Found %a@.'"
-            Pprintast.expression
+            Ppxlib.Pprintast.expression
             expr )
   in
   Location.raise_errorf ~loc "profiling_ppx: %s\nHint: %s" msg hint
