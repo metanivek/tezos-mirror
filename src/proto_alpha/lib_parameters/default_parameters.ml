@@ -195,10 +195,10 @@ let constants_mainnet : Constants.Parametric.t =
     consensus_rights_delay = 2;
     blocks_preservation_cycles = 1;
     delegate_parameters_activation_delay = 5;
-    blocks_per_cycle = 30720l;
+    blocks_per_cycle = 10800l;
     blocks_per_commitment = 240l;
     nonce_revelation_threshold = 960l;
-    cycles_per_voting_period = 5l;
+    cycles_per_voting_period = 14l;
     hard_gas_limit_per_operation = Gas.Arith.(integral_of_int_exn 1_040_000);
     hard_gas_limit_per_block = Gas.Arith.(integral_of_int_exn 1_386_666);
     (* When reducing blocks time, consider adapting this constant so
@@ -313,6 +313,8 @@ let constants_mainnet : Constants.Parametric.t =
        - Split [allow_forged] into [allow_tickets] and [allow_lazy_storage_id]: #2964
        - Introduce a new Ticket constructor in Michelson: #6643 *)
     direct_ticket_spending_enable = false;
+    (* attestation aggregation feature flag *)
+    aggregate_attestation = false;
   }
 
 let constants_sandbox =

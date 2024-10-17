@@ -3702,12 +3702,16 @@ let _octez_store_mocked =
     ~implements:octez_store
 
 let octez_requester =
-  octez_lib
+  let (PPX {preprocess; preprocessor_deps}) = ppx_profiler in
+  octez_shell_lib
     "requester"
     ~internal_name:"tezos_requester"
     ~path:"src/lib_requester"
+    ~preprocess
+    ~preprocessor_deps
     ~deps:
       [
+        octez_shell_services |> open_;
         octez_base |> open_ ~m:"TzPervasives";
         octez_stdlib_unix |> open_;
         lwt_watcher;
@@ -3717,9 +3721,11 @@ let octez_requester_tests =
   tezt
     ["requester_impl"; "test_requester"; "test_fuzzing_requester"; "shared"]
     ~path:"src/lib_requester/test"
-    ~opam:"octez-libs"
+    ~opam:"octez-requester-tests"
+    ~synopsis:"Requester tests"
     ~deps:
       [
+        octez_shell_services |> open_;
         octez_base |> open_ ~m:"TzPervasives";
         octez_base_unix;
         octez_test_helpers |> open_;
@@ -4514,13 +4520,48 @@ let octez_layer2_store =
         octez_context_encoding;
         octez_context_sigs;
         octez_context_helpers;
-        octez_riscv_pvm;
         camlzip;
         tar;
         tar_unix;
       ]
     ~linkall:true
     ~conflicts:[Conflicts.checkseum]
+
+let octez_layer2_irmin_context =
+  octez_l2_lib
+    "irmin_context"
+    ~internal_name:"tezos_layer2_irmin_context"
+    ~path:"src/lib_layer2_irmin_context"
+    ~synopsis:"Irmin context for the smart rollup PVMs"
+    ~deps:
+      [
+        octez_base |> open_ ~m:"TzPervasives";
+        irmin_pack;
+        irmin_pack_unix;
+        irmin;
+        octez_context_encoding;
+        octez_context_sigs;
+        octez_context_helpers;
+        octez_layer2_store |> open_;
+      ]
+    ~linkall:true
+    ~conflicts:[Conflicts.checkseum]
+
+let octez_layer2_riscv_context =
+  octez_l2_lib
+    "riscv_context"
+    ~internal_name:"tezos_layer2_riscv_context"
+    ~path:"src/lib_layer2_riscv_context"
+    ~synopsis:"RiscV implementation of the context for Layer2"
+    ~deps:
+      [
+        octez_error_monad |> open_ |> open_ ~m:"TzLwtreslib"
+        |> open_ ~m:"Error_monad";
+        octez_lwt_result_stdlib |> open_;
+        octez_layer2_store |> open_;
+        octez_riscv_pvm;
+      ]
+    ~linkall:true
 
 let octez_sqlite =
   octez_l2_lib
@@ -6906,6 +6947,8 @@ let hash = Protocol.hash
             octez_sc_rollup_layer2 |> if_some |> open_;
             layer2_utils |> if_some |> open_;
             octez_layer2_store |> open_;
+            octez_layer2_riscv_context |> open_;
+            octez_layer2_irmin_context |> open_;
             octez_crawler |> open_;
             tree_encoding;
             data_encoding;
@@ -8452,6 +8495,7 @@ let _octez_smart_rollup_node_lib_tests =
         octez_stdlib_unix |> open_;
         octez_test_helpers |> open_;
         octez_layer2_store |> open_;
+        octez_layer2_irmin_context |> open_;
         octez_smart_rollup_lib |> open_;
         octez_smart_rollup_node_store_lib |> open_;
         octez_smart_rollup_node_lib |> open_;

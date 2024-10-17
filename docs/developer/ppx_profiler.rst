@@ -89,10 +89,10 @@ There are three types of functions in the Profiler library.
 These functions are (for details about them, look at the :doc:`./profiler_module`
 document)
 
-- ``aggregate : ?lod:lod -> string -> unit``
-- ``mark : ?lod:lod -> string list -> unit``
-- ``record : ?lod:lod -> string -> unit``
-- ``stamp : ?lod:lod -> string -> unit``
+- ``aggregate : ?verbosity:verbosity -> string -> unit``
+- ``mark : ?verbosity:verbosity -> string list -> unit``
+- ``record : ?verbosity:verbosity -> string -> unit``
+- ``stamp : ?verbosity:verbosity -> string -> unit``
 - ``stop : unit -> unit``
 - ``reset_block_section: Block_hash.t -> unit`` (a utility function that calls
   ``stop`` and ``record`` for each new block profiled)
@@ -127,12 +127,12 @@ You can also decompose it to be sure of the evaluation order:
 
 These functions are:
 
-- ``aggregate_f : ?lod:lod -> string -> (unit -> 'a) -> 'a``
-- ``aggregate_s : ?lod:lod -> string -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
-- ``record_f : ?lod:lod -> string -> (unit -> 'a) -> 'a``
-- ``record_s : ?lod:lod -> string -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
-- ``span_f : ?lod:lod -> string list -> (unit -> 'a) -> 'a``
-- ``span_s : ?lod:lod -> string list -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
+- ``aggregate_f : ?verbosity:verbosity -> string -> (unit -> 'a) -> 'a``
+- ``aggregate_s : ?verbosity:verbosity -> string -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
+- ``record_f : ?verbosity:verbosity -> string -> (unit -> 'a) -> 'a``
+- ``record_s : ?verbosity:verbosity -> string -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
+- ``span_f : ?verbosity:verbosity -> string list -> (unit -> 'a) -> 'a``
+- ``span_s : ?verbosity:verbosity -> string list -> (unit -> 'a Lwt.t) -> 'a Lwt.t``
 
 The PPX allows to replace
 
@@ -212,7 +212,7 @@ The payload is made of two parts, the first one being optional:
    fields ::= field ; fields | empty
 
    field ::=
-     | level_of_detail = (Terse | Detailed | Verbose)
+     | level_of_detail = (Notice | Info | Debug)
      | profiler_module = module_ident
 
    args ::= <string> | <string list> | <function application> | ident | empty
@@ -221,16 +221,16 @@ As an example:
 
 .. code-block:: OCaml
 
-   f x [@profiler.aggregate_s {level_of_detail = Detailed} g y z] ;
-   g x [@profiler.span_f {level_of_detail = Verbose; profiler_module = Prof} "label"]
+   f x [@profiler.aggregate_s {level_of_detail = Info} g y z] ;
+   g x [@profiler.span_f {level_of_detail = Debug; profiler_module = Prof} "label"]
    ...
 
 will be preprocessed as
 
 .. code-block:: OCaml
 
-   Profiler.aggregate_s ~lod:Detailed (g y z) @@ f x ;
-   Prof.span_f ~lod:Verbose "label" @@ g x
+   Profiler.aggregate_s ~verbosity:Info (g y z) @@ f x ;
+   Prof.span_f ~verbosity:Debug "label" @@ g x
    ...
 
 Adding functionalities

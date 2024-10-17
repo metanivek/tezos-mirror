@@ -1200,6 +1200,29 @@ let job_datadog_pipeline_trace : tezos_job =
        pipeline_type:$PIPELINE_TYPE";
     ]
 
+(* Manual job that builds the Grafazos dashboards *)
+let job_build_grafazos : tezos_job =
+  job
+    ~__POS__
+    ~name:"build_grafazos_dashboards"
+    ~image:Images.jsonnet
+    ~stage:Stages.build
+    ~rules:[job_rule ~when_:Manual ()]
+    ~artifacts:
+      (artifacts
+         ~name:"grafazos-dashboards"
+         ~expire_in:(Duration (Days 1))
+         ~when_:On_success
+         ["grafazos/output/**/*.json"])
+    ~before_script:
+      [
+        "cd grafazos/";
+        (* For security, we explicitly install v0.20
+           which corresponds to commit [7903819]. *)
+        "jb install github.com/google/go-jsonnet/cmd/jsonnetfmt@7903819";
+      ]
+    ["make"]
+
 module Tezt = struct
   (** Create a tezt job.
 
@@ -1258,7 +1281,7 @@ module Tezt = struct
         "TEZT_VARIANT";
       ]
     in
-    let tezt_wrapper, dependencies =
+    let with_or_without_select_tezts, dependencies =
       match job_select_tezts with
       | Some job_select_tezts ->
           let dependencies =
@@ -1266,8 +1289,8 @@ module Tezt = struct
               dependencies
               job_select_tezts
           in
-          ("./scripts/ci/tezt.sh", dependencies)
-      | None -> ("_build/default/tezt/tests/main.exe", dependencies)
+          ("--with-select-tezts", dependencies)
+      | None -> ("--without-select-tezts", dependencies)
     in
     let retry = if retry = 0 then None else Some {max = retry; when_ = []} in
     job
@@ -1297,7 +1320,7 @@ module Tezt = struct
            second call that affect test selection.Note that TESTS must be quoted (here and below)
            since it will contain e.g. '&&' which we want to interpreted as TSL and not shell
            syntax. *)
-        tezt_wrapper
+        "./scripts/ci/tezt.sh " ^ with_or_without_select_tezts
         ^ " \"${TESTS}\" --from-record tezt/records --job \
            ${CI_NODE_INDEX:-1}/${CI_NODE_TOTAL:-1} --list-tsv > \
            selected_tezts.tsv";
@@ -1313,7 +1336,8 @@ module Tezt = struct
            because if the CI timeout is reached, there are no artefacts,
            and thus no logs to investigate.
            See also: https://gitlab.com/gitlab-org/gitlab/-/issues/19818 *)
-        "./scripts/ci/exit_code.sh timeout -k 60 1860 " ^ tezt_wrapper
+        "./scripts/ci/exit_code.sh timeout -k 60 1860 ./scripts/ci/tezt.sh \
+         --send-junit " ^ with_or_without_select_tezts
         ^ " \"${TESTS}\" --color --log-buffer-size 5000 --log-file tezt.log \
            --global-timeout 1800 --on-unknown-regression-files fail --junit \
            ${JUNIT} --from-record tezt/records --job \

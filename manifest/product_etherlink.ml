@@ -4,12 +4,14 @@
 (* Copyright (c) 2021-2023 Nomadic Labs <contact@nomadic-labs.com>           *)
 (* Copyright (c) 2022-2023 Trili Tech <contact@trili.tech>                   *)
 (* Copyright (c) 2023 Marigold <contact@marigold.dev>                        *)
+(* Copyright (c) 2024 Functori <contact@functori.com>                        *)
 (*                                                                           *)
 (*****************************************************************************)
 
 open Manifest
 open Externals
 open Internals
+open Product_cohttp
 open Product_octez
 open Product_prometheus
 
@@ -93,11 +95,11 @@ let wasm_runtime_callbacks =
       [
         octez_base |> open_ ~m:"TzPervasives";
         octez_base_unix;
-        octez_layer2_store |> open_;
+        octez_layer2_irmin_context |> open_;
         Product_cohttp.cohttp_lwt_unix;
       ]
 
-let wasm_runtime_callbacks_tests =
+let _wasm_runtime_callbacks_tests =
   tezt
     ["test_vector"; "test_store"]
     ~path:"src/lib_wasm_runtime_callbacks/test"
@@ -114,7 +116,7 @@ let wasm_runtime_callbacks_tests =
         alcotezt;
         tezt_wrapper |> open_ |> open_ ~m:"Base";
         tezt_tezos |> open_ |> open_ ~m:"Runnable.Syntax";
-        octez_layer2_store |> open_;
+        octez_layer2_irmin_context |> open_;
         wasm_runtime_callbacks;
       ]
 
@@ -123,7 +125,12 @@ let wasm_runtime =
     "evm_node_wasm_runtime"
     ~path:"src/lib_wasm_runtime/ocaml-api"
     ~synopsis:"WASM runtime compatible with the WASM PVM"
-    ~deps:[octez_layer2_store |> open_; octez_rust_deps; wasm_runtime_callbacks]
+    ~deps:
+      [
+        octez_layer2_irmin_context |> open_;
+        octez_rust_deps;
+        wasm_runtime_callbacks;
+      ]
     ~flags:
       (Flags.standard
          ~disable_warnings:[66]
@@ -235,6 +242,7 @@ let evm_node_lib_dev =
         octez_scoru_wasm_helpers |> open_;
         octez_scoru_wasm_debugger_lib |> open_;
         octez_layer2_store |> open_;
+        octez_layer2_irmin_context |> open_;
         octez_smart_rollup_lib |> open_;
         octez_smart_rollup_node_store_lib;
         evm_node_migrations;
@@ -262,7 +270,7 @@ let _octez_evm_node_tests =
         evm_node_lib_dev;
         tezt_wrapper |> open_ |> open_ ~m:"Base";
         tezt_tezos |> open_ |> open_ ~m:"Runnable.Syntax";
-        octez_layer2_store |> open_;
+        octez_layer2_irmin_context |> open_;
         Protocol.(main alpha);
       ]
 
@@ -333,3 +341,26 @@ let _tezt_testnet_scenarios =
         tezt_tezos |> open_ |> open_ ~m:"Runnable.Syntax";
         tezt_etherlink |> open_;
       ]
+
+let _etherlink_governance_observer =
+  public_exe
+    "etherlink-governance-observer"
+    ~internal_name:"governance_observer"
+    ~path:"etherlink/governance-metrics/src"
+    ~opam:"etherlink-governance-observer"
+    ~synopsis:
+      "A binary to observe, scrap and store Etherlink's governance contracts \
+       informations"
+    ~deps:
+      [
+        bls12_381_archive;
+        octez_base |> open_ ~m:"TzPervasives";
+        octez_base_unix;
+        octez_clic;
+        prometheus_app;
+        cohttp_lwt_unix;
+        cohttp_lwt;
+        octez_rpc_http |> open_;
+        octez_rpc_http_client_unix;
+      ]
+    ~bisect_ppx:Yes
