@@ -3571,7 +3571,7 @@ let with_dal_ready_for_echo_dal_reveal_pages ~operator_profiles
             "The value of the fetched status should match the expected one \
              (current = %L, expected = %R)" ;
         Log.info
-          "Slot published at level %d and index %d is attested as expected@."
+          "Slot published at level %d and index %d is attested as expected"
           published_level
           slot_index ;
         unit
