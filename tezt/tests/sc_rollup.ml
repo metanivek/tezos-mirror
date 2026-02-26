@@ -158,6 +158,7 @@ let test_l1_scenario ?supports ?regression ?hooks ~kind ?boot_sector
     ?uses
     ~title:(format_title_scenario kind {variant; tags; description})
   @@ fun protocol ->
+  let boot_sector = Option.map (fun f -> f ()) boot_sector in
   let* tezos_node, tezos_client =
     setup_l1
       ?commitment_period
@@ -184,6 +185,11 @@ let maybe_setup_preimages_dir rollup_node kind preimages_dir =
          when debugging from the temp test directory *)
       Process.run "cp" ["-R"; Uses.path src_dir; dest_dir]
 
+(* [boot_sector] is a thunk [(unit -> string) option] rather than a plain string
+   so that callers can defer [Uses.path] calls to test execution time. The Tezt
+   framework warns when a dependency declared in [~uses] is not consumed via
+   [Uses.path] during execution; without the thunk, the path would be resolved
+   eagerly at registration time and the framework would never see it. *)
 let test_full_scenario ?supports ?regression ?hooks ~kind ?mode ?boot_sector
     ?commitment_period ?(parameters_ty = "string") ?challenge_window ?timeout
     ?timestamp ?rollup_node_name ?whitelist_enable ?whitelist ?operator
@@ -204,6 +210,7 @@ let test_full_scenario ?supports ?regression ?hooks ~kind ?mode ?boot_sector
     ~uses
     ~title:(format_title_scenario kind {variant; tags; description})
   @@ fun protocol ->
+  let boot_sector = Option.map (fun f -> f ()) boot_sector in
   let riscv_pvm_enable = kind = "riscv" in
   let* tezos_node, tezos_client =
     setup_l1
@@ -1727,7 +1734,7 @@ let test_rollup_node_advances_pvm_state ?regression ?kernel_debug_log ~title
 let test_rollup_node_run_with_kernel ~kind ~kernel_name ~internal =
   test_rollup_node_advances_pvm_state
     ~title:(Format.sprintf "runs with kernel - %s" kernel_name)
-    ~boot_sector:(read_kernel kernel_name)
+    ~boot_sector:(fun () -> read_kernel kernel_name)
     ~internal
     ~kind
 
@@ -2879,7 +2886,7 @@ let test_boot_sector_is_evaluated ~boot_sector1 ~boot_sector2 ~kind =
       ~alias:"rollup2"
       ~hooks
       ~kind
-      ~boot_sector:boot_sector2
+      ~boot_sector:(boot_sector2 ())
       ~src:Constant.bootstrap2.alias
       tezos_client
   in
@@ -3464,11 +3471,11 @@ let test_invalid_dal_parameters protocols =
     ~timeout:160
     ~commitment_period:10
     ~variant:"invalid_dal_parameters"
-    ~boot_sector:
-      (read_kernel
-         ~base:""
-         ~suffix:""
-         (Uses.path Constant.WASM.echo_dal_reveal_parameters))
+    ~boot_sector:(fun () ->
+      read_kernel
+        ~base:""
+        ~suffix:""
+        (Uses.path Constant.WASM.echo_dal_reveal_parameters))
     (refutation_scenario_parameters
        ~loser_modes:["reveal_dal_parameters 6 6 6 6"]
        (inputs_for 10)
@@ -3704,11 +3711,11 @@ let test_refutation_with_dal_page_import protocols =
         ~commitment_period:10
         ~dal_attested_slots_validity_lag:dal_ttl
         ~variant
-        ~boot_sector:
-          (read_kernel
-             ~base:""
-             ~suffix:""
-             (Uses.path Constant.WASM.echo_dal_reveal_pages))
+        ~boot_sector:(fun () ->
+          read_kernel
+            ~base:""
+            ~suffix:""
+            (Uses.path Constant.WASM.echo_dal_reveal_pages))
         (refutation_scenario_parameters
            ~loser_modes
            (inputs_for 10)
@@ -3798,12 +3805,12 @@ let test_refutation_with_dal_page_import_id_far_in_the_future protocols =
         ~commitment_period:10
         ~dal_attested_slots_validity_lag:dal_ttl
         ~variant
-        ~boot_sector:
-          (read_kernel
-             ~base:""
-             ~suffix:""
-             (Uses.path
-                Constant.WASM.echo_dal_reveal_pages_high_target_pub_level))
+        ~boot_sector:(fun () ->
+          read_kernel
+            ~base:""
+            ~suffix:""
+            (Uses.path
+               Constant.WASM.echo_dal_reveal_pages_high_target_pub_level))
         (refutation_scenario_parameters
            ~loser_modes
            (inputs_for 10)
@@ -5151,7 +5158,7 @@ let test_outbox_message ?supports ?regression ?expected_error ?expected_l1_error
         in
         (None, input_message, outbox_parameters)
     | "wasm_2_0_0" ->
-        let bootsector = read_kernel "echo" in
+        let bootsector () = read_kernel "echo" in
         let input_message protocol contract_address =
           let parameters_json = `O [("int", `String outbox_parameters)] in
           let transaction =
@@ -5360,7 +5367,7 @@ let test_outbox_message protocols ~kind =
       ~auto_execute_outbox:false)
 
 let test_rpcs ~kind
-    ?(boot_sector = Sc_rollup_helpers.default_boot_sector_of ~kind)
+    ?(boot_sector = fun () -> Sc_rollup_helpers.default_boot_sector_of ~kind)
     ?kernel_debug_log ?preimages_dir =
   test_full_scenario
     ~uses:(fun _protocol -> default_boot_sector_uses_of ~kind)
@@ -5681,7 +5688,7 @@ let test_recover_bond_of_stakers =
   test_l1_scenario
     ~regression:true
     ~hooks
-    ~boot_sector:""
+    ~boot_sector:(fun () -> "")
     ~kind:"arith"
     ~challenge_window:10
     ~commitment_period:10
@@ -5820,7 +5827,7 @@ let test_arg_boot_sector_file ~kind =
   let hex_if_wasm s =
     match kind with "wasm_2_0_0" -> Hex.(of_string s |> show) | _ -> s
   in
-  let boot_sector =
+  let boot_sector () =
     hex_if_wasm "Nantes aurait été un meilleur nom de protocol"
   in
   test_full_scenario
@@ -5841,7 +5848,7 @@ let test_arg_boot_sector_file ~kind =
   in
   let () = write_file invalid_boot_sector_file ~contents:invalid_boot_sector in
   let valid_boot_sector_file = Filename.temp_file "valid-boot-sector" ".hex" in
-  let () = write_file valid_boot_sector_file ~contents:boot_sector in
+  let () = write_file valid_boot_sector_file ~contents:(boot_sector ()) in
   (* Starts the rollup node with an invalid boot sector. Asserts that the
      node fails with an invalid genesis state. *)
   let* () =
@@ -7661,6 +7668,7 @@ let register_riscv ~protocols =
          ~path:"src/riscv/assets/riscv-dummy.elf.checksum"
          ())
   in
+  let boot_sector = fun () -> boot_sector in
   let preimages_dir =
     Uses.make ~tag:kind ~path:"src/riscv/assets/preimages" ()
   in
@@ -7723,6 +7731,7 @@ let register_riscv_kernel ~protocols ~kernel =
          ~path:("src/riscv/assets/" ^ kernel ^ ".checksum")
          ())
   in
+  let boot_sector = fun () -> boot_sector in
   let inbox_file_uses = Uses.make ~tag:"riscv" ~path:inbox_path () in
   test_advances_state_with_kernel
     protocols
@@ -7868,12 +7877,12 @@ let register ~protocols =
   test_patch_durable_storage_on_commitment protocols ;
   (* Specific Arith PVM tezts *)
   test_rollup_origination_boot_sector
-    ~boot_sector:"10 10 10 + +"
+    ~boot_sector:(fun () -> "10 10 10 + +")
     ~kind:"arith"
     protocols ;
   test_boot_sector_is_evaluated
-    ~boot_sector1:"10 10 10 + +"
-    ~boot_sector2:"31"
+    ~boot_sector1:(fun () -> "10 10 10 + +")
+    ~boot_sector2:(fun () -> "31")
     ~kind:"arith"
     protocols ;
   test_reveals_4k protocols ;
