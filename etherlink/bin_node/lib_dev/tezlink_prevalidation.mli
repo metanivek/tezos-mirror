@@ -124,3 +124,22 @@ val validate_for_blueprint :
   Validation_types.validation_state ->
   Tezos_types.Operation.t ->
   (Validation_types.validation_state, string) result tzresult Lwt.t
+
+module Internal_for_tests : sig
+  (** [parse_unvalidated raw] structurally decodes raw operation bytes into
+      a {!Tezos_types.Operation.t}: it deserializes the binary, flattens the
+      [Single]/[Cons] batch, and accumulates length / fee / gas_limit.
+
+      {b This function performs no semantic validation.} Unlike
+      {!parse_and_validate_for_queue} it does {i not} check the size, the
+      signature, the source's revelation status, the counter sequencing,
+      the balance, the minimal fees, or the batch consistency. Callers
+      must either trust the input or run their own validation before
+      acting on the result.
+
+      Used by Floodgate (MR !21604), which forges and signs its own
+      operations and just needs to materialize the internal
+      representation to inject into the Tx queue. *)
+  val parse_unvalidated :
+    bytes -> (Tezos_types.Operation.t, error trace) result Lwt.t
+end

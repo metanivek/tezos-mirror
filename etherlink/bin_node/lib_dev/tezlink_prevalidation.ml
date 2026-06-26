@@ -582,6 +582,28 @@ let compute_minimal_fees ~(op_raw_size : int) ~(op_gas_limit : Z.t)
   let* execution_fees = of_nanotez_ceil execution_fees in
   Imported_env.wrap_tzresult @@ Tezos_types.Tez.(da_fees +? execution_fees)
 
+(* Structural decode: binary-decodes [raw] and flattens [Single]/[Cons]
+   contents. Returns [(op, first, rest)]: the full packed operation,
+   the first content (always present), and the tail of remaining
+   contents (empty for a [Single] batch). Performs no semantic
+   validation — callers must check sources, counters, signatures,
+   balances, etc. themselves. *)
+let decode_raw_op ~error_clue raw =
+  let open Lwt_result_syntax in
+  let* op =
+    match Data_encoding.Binary.of_bytes Operation.encoding raw with
+    | Error e -> tzfail @@ Parsing_failure (error_clue, e)
+    | Ok op -> return op
+  in
+  let {protocol_data = Operation_data {contents; _}; _} = op in
+  let first, rest =
+    match contents with
+    | Single only_operation -> (Contents only_operation, [])
+    | Cons (first_operation, rest) ->
+        (Contents first_operation, Operation.to_list (Contents_list rest))
+  in
+  return (op, first, rest)
+
 let parse_and_validate_for_queue ?michelson_hard_gas_limit_per_block
     ~simulator_mode ~nanotez_per_michelson_gas ~state raw =
   let open Lwt_result_syntax in
@@ -589,18 +611,8 @@ let parse_and_validate_for_queue ?michelson_hard_gas_limit_per_block
   let op_raw_size = Bytes.length raw in
   let error_clue = Operation_hash.hash_bytes [raw] in
   let** () = validate_size ~op_raw_size ~error_clue in
-  let* op =
-    match Data_encoding.Binary.of_bytes Operation.encoding raw with
-    | Error e -> tzfail @@ Parsing_failure (error_clue, e)
-    | Ok op -> return op
-  in
+  let* op, first, rest = decode_raw_op ~error_clue raw in
   let {protocol_data = Operation_data {contents; signature}; shell} = op in
-  let first, rest =
-    match contents with
-    | Single only_operation -> (Contents only_operation, [])
-    | Cons (first_operation, rest) ->
-        (Contents first_operation, Operation.to_list (Contents_list rest))
-  in
   (* During operation simulation, fees are not yet estimated and the
      operation is not properly signed yet. For this reason, the
      simulator bypasses the corresponding checks during validation. *)
@@ -770,3 +782,41 @@ let validate_for_blueprint state (operation : Tezos_types.Operation.t) =
          addr_balance = add_ operation.source new_balance state.addr_balance;
          gas = Z.(state.gas + operation.gas_limit);
        })
+
+module Internal_for_tests = struct
+  let parse_batch ~error_clue (batch : packed_contents list) =
+    let open Lwt_result_syntax in
+    List.fold_left_es
+      (fun (acc_len, acc_fee, acc_gas) -> function
+        | Contents (Manager_operation {fee; gas_limit; _}) ->
+            let*? acc_fee =
+              Imported_env.wrap_tzresult @@ Tez.(acc_fee +? fee)
+            in
+            let acc_gas =
+              Z.add acc_gas (Tezos_types.Operation.gas_limit_to_z gas_limit)
+            in
+            return (acc_len + 1, acc_fee, acc_gas)
+        | _ -> tzfail @@ Not_a_manager_operation error_clue)
+      (0, Tez.zero, Z.zero)
+      batch
+
+  let parse_unvalidated (raw : bytes) =
+    let open Lwt_result_syntax in
+    let error_clue = Operation_hash.hash_bytes [raw] in
+    let* op, first, rest = decode_raw_op ~error_clue raw in
+    let* source, first_counter_raw =
+      match first with
+      | Contents (Manager_operation {source; counter; _}) ->
+          return (source, counter)
+      | _ -> tzfail @@ Not_a_manager_operation error_clue
+    in
+    let*? first_counter =
+      Tezos_types.Operation.counter_to_z first_counter_raw
+    in
+    let* length, fee, gas_limit = parse_batch ~error_clue (first :: rest) in
+    let operation : Tezos_types.Operation.t =
+      Tezos_types.Operation.
+        {length; source; raw; op; first_counter; fee; gas_limit}
+    in
+    return operation
+end
