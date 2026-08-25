@@ -602,46 +602,6 @@ let recover_sender ~hash ~recovery_id ~r ~s =
   let* pub = Tezos_crypto.Signature.Secp256k1.recover sig_ hash in
   Ok (Ethereum_types.Address (Hex (Hex.of_bytes pub |> Hex.show)))
 
-(** Build the RLP-encoded message used for EIP-7702 authorization signatures.
-    The message encodes the [chain_id], [address], and [nonce] fields.
-*)
-let auth_message {chain_id = Qty chain_id; address; nonce = Qty nonce; _} =
-  let open Rlp in
-  let chain_id = encode_z chain_id in
-  let nonce = encode_z nonce in
-  let rlp =
-    List
-      [
-        Value chain_id;
-        Value (Ethereum_types.encode_address address);
-        Value nonce;
-      ]
-  in
-  encode rlp
-
-(** Compute the Keccak-256 hash of an EIP-7702 authorization message.
-    A magic byte [0x05] is prepended before hashing, as required by the spec.
-*)
-let authorization_hash authorization =
-  let authority_magic_byte = '\005' in
-  let buffer = Buffer.create 128 in
-  Buffer.add_char buffer authority_magic_byte ;
-  let rlp_authorization = auth_message authorization in
-  Buffer.add_bytes buffer rlp_authorization ;
-  let raw_bytes = Buffer.to_bytes buffer in
-  Tezos_crypto.Hacl.Hash.Keccak_256.digest raw_bytes
-
-(** Recover the signer of an EIP-7702 [authorization_item].
-    Computes the authorization hash and uses the signature components ([r], [s], [y_parity])
-    to recover the Ethereum address of the signer.
-*)
-let authorization_signer
-    ({r = Qty r; s = Qty s; y_parity = Qty y_parity; _} as authorization :
-      authorization_item) =
-  let hash = authorization_hash authorization in
-  let recovery_id = recovery_id ~v:y_parity in
-  recover_sender ~hash ~recovery_id ~r ~s
-
 (** Recover the signer of a typed Ethereum transaction.
     - [rlp] is the RLP-encoded transaction.
     - [prefix_char] is the transaction type prefix byte (e.g. [0x02] for EIP-1559).

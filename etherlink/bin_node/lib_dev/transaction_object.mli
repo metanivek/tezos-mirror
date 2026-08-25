@@ -108,13 +108,6 @@ val decode : string -> t tzresult
     and [false] otherwise. *)
 val is_eip7702 : t -> bool
 
-(** [authorization_signer item] recovers the signer address from an
-    {{:https://eips.ethereum.org/EIPS/eip-7702}EIP-7702} [authorization_item].
-    This is done by hashing the authorization message according to the EIP-7702
-    specification and recovering the public key from the signature components
-    contained in [item]. *)
-val authorization_signer : authorization_item -> (address, string) result
-
 (** Internal representation used to satisfy [txpool_content] requests.
     A [txqueue_content] groups transactions known into two categories,
     organized by sender address and nonce:
