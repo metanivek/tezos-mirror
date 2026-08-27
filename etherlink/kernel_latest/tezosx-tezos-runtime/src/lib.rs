@@ -1100,69 +1100,31 @@ fn assert_receipt_markers_balanced(receipt: &tezos_tezlink::block::AppliedOperat
     );
 }
 
-// --- Alias generation gas constants (milligas) ---
-//
-// Alias generation runs inside an existing CRAC frame whose outer
-// transaction already paid the manager-operation envelope. Branch 3
-// (full materialization) is metered end-to-end through
-// `originate_contract`'s receipt (`consumed_milligas`), including the
-// classification write — `originate_contract` writes the origin
-// itself when given `Origin::Alias`. Branch 2 (legacy patch-only)
-// performs a single classification write outside any receipt and
-// hand-rolls its gas envelope below. Computational steps (the BLAKE2b
-// digest, base58 encoding, alias_info parsing) are absorbed by the
-// surrounding gas budget and are not charged separately.
-//
-// TODO https://linear.app/tezos/issue/L2-435/durable-storage-readwrites-induces-gas-costs
-// `originate_contract`'s receipt currently underreports gas: the
-// kernel does not charge gas envelopes for durable-store writes,
-// unlike L1's carbonated storage layer. Once L2-435 lands and the
-// storage primitives meter every read/write, every alias branch
-// inherits correct accounting automatically — and the
-// `STORAGE_WRITE_BASE_MILLIGAS` charge in branch 2 should fold into
-// the same uniform helper.
-
-/// Fixed overhead for a single durable-store write (independent of
-/// payload size): path resolution, PVM host call boundary, journal
-/// bookkeeping. Used in branch 2 for the standalone classification
-/// write.
-const STORAGE_WRITE_BASE_MILLIGAS: u64 = 2_000;
-
 impl RuntimeInterface for TezosRuntime {
     type Journal = TezosXJournal;
 
-    fn ensure_alias<Host, KS>(
+    fn create_alias<Host, KS>(
         &self,
         _registry: &impl Registry<Journal = TezosXJournal>,
         rk: &mut RuntimeKeyspaces<Host, KS>,
         journal: &mut TezosXJournal,
+        alias: &str,
         alias_info: AliasInfo,
+        native_address: &str,
         _native_public_key: Option<&[u8]>,
         _context: CrossRuntimeContext,
         gas_remaining: TezosXGas,
-    ) -> Result<(String, AliasResolution), TezosXRuntimeError>
+    ) -> Result<AliasResolution, TezosXRuntimeError>
     where
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
     {
-        // The native address is stored in `alias_info` as the UTF-8
-        // bytes of the canonical address string. Decode once for the
-        // forwarder storage payload below; the hash and the
-        // classification record both work on the bytes directly.
-        let native_address =
-            std::str::from_utf8(&alias_info.native_address).map_err(|e| {
-                TezosXRuntimeError::ConversionError(format!(
-                    "alias_info.native_address is not valid UTF-8: {e}"
-                ))
-            })?;
-
         // Gas costs in milligas, charged incrementally so we fail early.
         // The closure pattern would persist a borrow on `remaining`; a
         // free function lets the borrow last only for the duration of
         // each call so we can also pass `remaining` to
         // `TezlinkOperationGas::start_milligas` below.
         let mut remaining = gas_remaining.as_runtime(RuntimeId::Tezos);
-        let as_gas = |milligas: u64| TezosXGas::new(milligas, RuntimeId::Tezos);
         fn consume(remaining: &mut u64, cost: u64) -> Result<(), TezosXRuntimeError> {
             *remaining = remaining.checked_sub(cost).ok_or_else(|| {
                 TezosXRuntimeError::Custom(
@@ -1172,29 +1134,11 @@ impl RuntimeInterface for TezosRuntime {
             Ok(())
         }
 
-        // Derive the deterministic alias address. The BLAKE2b digest
-        // and the base58 encoding are computational steps absorbed by
-        // the surrounding gas budget — alias generation runs inside an
-        // existing CRAC frame whose envelope already covers the
-        // computation. Only durable-store writes are metered below.
-        let kt1 = ContractKt1Hash::from(blake2b::digest_160(&alias_info.native_address));
-        let kt1_str = kt1.to_base58_check();
-
-        let account = context::originated_from_kt1(&kt1)?;
-
-        // Branch 1: already classified as alias. Returning early
-        // preserves the gas budget and performs no durable writes.
-        match account.origin(rk.host())? {
-            Some(Origin::Alias(_)) => {
-                return Ok((kt1_str, AliasResolution::build(as_gas(remaining))));
-            }
-            Some(Origin::Native) => {
-                return Err(TezosXRuntimeError::Custom(format!(
-                    "ensure_alias: account {kt1_str} is recorded as Native, refusing to overwrite"
-                )));
-            }
-            None => {}
-        }
+        let kt1 = ContractKt1Hash::from_base58_check(alias).map_err(|err| {
+            TezosXRuntimeError::Custom(format!(
+                "Failed to parse KT1 address from alias: {err}"
+            ))
+        })?;
 
         let world_state = OwnedPath::from(&context::TEZOS_ACCOUNTS_ROOT);
         journal
@@ -1206,19 +1150,7 @@ impl RuntimeInterface for TezosRuntime {
                 ))
             })?;
 
-        // Branch 2: a forwarder is already deployed but the
-        // classification path is empty. Write the classification only
-        // and skip the redeploy. The patch costs one durable write.
-        if account.exists(rk.host()).map_err(|e| {
-            TezosXRuntimeError::Custom(format!("Failed to check alias existence: {e}"))
-        })? {
-            consume(&mut remaining, STORAGE_WRITE_BASE_MILLIGAS)?;
-            let new_origin = Origin::Alias(alias_info);
-            account.set_origin(rk.host_mut(), &new_origin)?;
-            return Ok((kt1_str, AliasResolution::build(as_gas(remaining))));
-        }
-
-        // Branch 3: full materialization. Deploy the forwarder via the
+        // Deploy the forwarder via the
         // shared `originate_contract` path, passing `Origin::Alias` so
         // the classification write is performed in the same call.
 
@@ -1350,13 +1282,36 @@ impl RuntimeInterface for TezosRuntime {
             .michelson
             .push_pending_alias_origination_internal(internal_op);
 
-        Ok((
-            kt1_str,
-            AliasResolution::build_with_delegated_storage_cost(
-                as_gas(remaining),
-                alias_storage_cost,
-            ),
+        Ok(AliasResolution::build_with_delegated_storage_cost(
+            tezosx_interfaces::Gas::new(remaining, RuntimeId::Tezos),
+            alias_storage_cost,
         ))
+    }
+
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        _journal: &mut Self::Journal,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: StorageV1,
+        KS: SafeKeyspace,
+    {
+        let kt1 = ContractKt1Hash::from_base58_check(alias).map_err(|err| {
+            TezosXRuntimeError::ConversionError(format!(
+                "Failed to parse alias from string: {err}"
+            ))
+        })?;
+        let account = context::originated_from_kt1(&kt1)?;
+
+        match account.origin(rk.host())? {
+            Some(Origin::Alias(_)) => Ok(true),
+            Some(Origin::Native) => Err(TezosXRuntimeError::Custom(format!(
+                "alias_exists: account {alias} is recorded as Native"
+            ))),
+            None => Ok(false),
+        }
     }
 
     fn compute_alias(&self, native_address: &[u8]) -> Result<String, TezosXRuntimeError> {
@@ -1839,28 +1794,17 @@ mod tests {
     }
 
     #[test]
-    fn ensure_alias_returns_valid_kt1_string() {
-        let mut rk = test_rk();
-        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
+    fn compute_alias_returns_valid_kt1_string() {
         let runtime = test_runtime();
 
         let alias = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info("0x1234567890abcdef1234567890abcdef12345678"),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .expect("ensure_alias should succeed");
+            .compute_alias("0x1234567890abcdef1234567890abcdef12345678".as_bytes())
+            .expect("compute_alias should succeed");
 
         // The alias should be a valid KT1 base58check string
         assert!(
-            alias.0.starts_with("KT1"),
-            "Alias should be a KT1 address: {}",
-            alias.0
+            alias.starts_with("KT1"),
+            "Alias should be a KT1 address: {alias}"
         );
     }
 
@@ -1870,13 +1814,16 @@ mod tests {
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0x1234567890abcdef1234567890abcdef12345678";
+        let alias = runtime.compute_alias(evm_address.as_bytes()).unwrap();
 
         runtime
-            .ensure_alias(
+            .create_alias(
                 &NotWiredRegistry,
                 &mut rk,
                 &mut journal,
+                &alias,
                 evm_alias_info(evm_address),
+                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),
@@ -1928,18 +1875,23 @@ mod tests {
     }
 
     #[test]
-    fn ensure_alias_stores_evm_address_in_storage() {
+    fn create_alias_stores_evm_address_in_storage() {
         let mut rk = test_rk();
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let alias = runtime
+            .compute_alias(evm_address.as_bytes())
+            .expect("compute_alias should succeed");
 
         runtime
-            .ensure_alias(
+            .create_alias(
                 &NotWiredRegistry,
                 &mut rk,
                 &mut journal,
+                &alias,
                 evm_alias_info(evm_address),
+                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),
@@ -1962,14 +1914,17 @@ mod tests {
         let mut rk = test_rk();
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
-        let evm_address = "0xabcdef";
+        let evm_address = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        let alias = runtime.compute_alias(evm_address.as_bytes()).unwrap();
 
         runtime
-            .ensure_alias(
+            .create_alias(
                 &NotWiredRegistry,
                 &mut rk,
                 &mut journal,
+                &alias,
                 evm_alias_info(evm_address),
+                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),
@@ -1983,182 +1938,32 @@ mod tests {
     }
 
     #[test]
-    fn ensure_alias_is_deterministic() {
-        let mut rk1 = test_rk();
-        let mut rk2 = test_rk();
-        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
+    fn compute_alias_is_deterministic() {
         let runtime = test_runtime();
         let evm_address = "0x1111111111111111111111111111111111111111";
 
-        let alias1 = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk1,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .unwrap();
-        let alias2 = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk2,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .unwrap();
+        let alias1 = runtime.compute_alias(evm_address.as_bytes()).unwrap();
+        let alias2 = runtime.compute_alias(evm_address.as_bytes()).unwrap();
 
-        assert_eq!(alias1.0, alias2.0);
+        assert_eq!(alias1, alias2);
     }
 
     #[test]
-    fn ensure_alias_different_addresses_produce_different_aliases() {
-        let mut rk = test_rk();
-        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
+    fn compute_alias_different_addresses_produce_different_aliases() {
         let runtime = test_runtime();
 
         let alias1 = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info("0x1111111111111111111111111111111111111111"),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
+            .compute_alias("0x1111111111111111111111111111111111111111".as_bytes())
             .unwrap();
         let alias2 = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info("0x2222222222222222222222222222222222222222"),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
+            .compute_alias("0x2222222222222222222222222222222222222222".as_bytes())
             .unwrap();
 
-        assert_ne!(alias1.0, alias2.0);
+        assert_ne!(alias1, alias2);
     }
 
     #[test]
-    fn ensure_alias_is_idempotent_no_op() {
-        // First branch of the function. A second call with the same
-        // input must return the same address with the gas budget
-        // unchanged. The first call deploys; the second is just a
-        // read of the classification path.
-        let mut rk = test_rk();
-        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
-        let runtime = test_runtime();
-        let evm_address = "0x3333333333333333333333333333333333333333";
-
-        let first = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .unwrap();
-
-        let second = runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(500_000, RuntimeId::Tezos),
-            )
-            .unwrap();
-
-        assert_eq!(first.0, second.0);
-        // The no-op branch performs no durable writes, so its metered
-        // cost is zero — only the first call pays for the storage init
-        // (via the `originate_contract` receipt) and the classification
-        // write.
-        let first_consumed =
-            TezosXGas::new(5_000_000, RuntimeId::Tezos) - first.1.gas_remaining;
-        let second_consumed =
-            TezosXGas::new(500_000, RuntimeId::Tezos) - second.1.gas_remaining;
-        assert!(
-            second_consumed.as_runtime(RuntimeId::Tezos)
-                < first_consumed.as_runtime(RuntimeId::Tezos) / 10,
-            "second call must be vastly cheaper than the first (first {first_consumed}, second {second_consumed})"
-        );
-    }
-
-    #[test]
-    fn ensure_alias_patch_only_branch_writes_classification() {
-        // Branch 2: a forwarder is deployed but the classification
-        // path is empty. The kernel writes the classification and
-        // skips the redeploy. We simulate the legacy state by running
-        // ensure_alias once, then deleting the origin path, then
-        // running it again. The second call should restore the
-        // classification without redeploying.
-        use tezos_execution::context::code::ORIGIN_PATH;
-        use tezos_smart_rollup_host::path::concat;
-
-        let mut rk = test_rk();
-        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
-        let runtime = test_runtime();
-        let evm_address = "0x4444444444444444444444444444444444444444";
-
-        runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .unwrap();
-
-        // Locate the alias account and delete its origin path to
-        // simulate a legacy account written before this work.
-        let kt1 = ContractKt1Hash::from(blake2b::digest_160(evm_address.as_bytes()));
-        let account = context::originated_from_kt1(&kt1).unwrap();
-        let origin_path = concat(account.path(), &ORIGIN_PATH).unwrap();
-        rk.host_mut().store_delete(&origin_path).unwrap();
-        assert!(account.origin(rk.host()).unwrap().is_none());
-
-        // Run again. The patch branch must re-record the classification.
-        runtime
-            .ensure_alias(
-                &NotWiredRegistry,
-                &mut rk,
-                &mut journal,
-                evm_alias_info(evm_address),
-                None,
-                test_context(),
-                TezosXGas::new(5_000_000, RuntimeId::Tezos),
-            )
-            .unwrap();
-
-        match account.origin(rk.host()).unwrap() {
-            Some(Origin::Alias(info)) => {
-                assert_eq!(info.runtime, RuntimeId::Ethereum);
-                assert_eq!(info.native_address, evm_address.as_bytes().to_vec());
-            }
-            other => panic!("expected Alias classification, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn ensure_alias_rejects_native_classification() {
+    fn alias_exists_rejects_native_classification() {
         // The kernel must never reach an alias address that has been
         // classified as Native. If it does, the call returns an error
         // rather than overwriting the classification.
@@ -2171,16 +1976,11 @@ mod tests {
 
         account.set_origin(rk.host_mut(), &Origin::Native).unwrap();
 
-        let res = runtime.ensure_alias(
-            &NotWiredRegistry,
-            &mut rk,
-            &mut journal,
-            evm_alias_info(evm_address),
-            None,
-            test_context(),
-            TezosXGas::new(5_000_000, RuntimeId::Tezos),
-        );
-        assert!(res.is_err());
+        // `alias_exists` takes the alias in its own runtime's canonical
+        // form (base58 KT1). Passing the EVM address would fail the
+        // base58 decode and never reach the classification check.
+        let res = runtime.alias_exists(&mut rk, &mut journal, &kt1.to_base58_check());
+        assert!(matches!(res, Err(TezosXRuntimeError::Custom(_))));
     }
 
     // ── RFC Example 2: EVM → Michelson (incoming CRAC receipt) ──────────

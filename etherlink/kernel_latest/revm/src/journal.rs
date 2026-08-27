@@ -925,7 +925,7 @@ impl<
         // state-mutating path), but skip the storage writes.
         self.database
             .registry
-            .compute_alias(AliasInfo {
+            .compute_alias(&AliasInfo {
                 runtime: target_runtime,
                 native_address: native_bytes,
             })

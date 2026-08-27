@@ -43,9 +43,23 @@ impl Registry for UnimplementedRegistry {
         unimplemented!("UnimplementedRegistry::ensure_alias")
     }
 
+    fn alias_exists<Host, KS>(
+        &self,
+        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _journal: &mut Self::Journal,
+        _target_runtime: RuntimeId,
+        _alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace,
+    {
+        unimplemented!("UnimplementedRegistry::alias_exists")
+    }
+
     fn compute_alias(
         &self,
-        _alias_info: AliasInfo,
+        _alias_info: &AliasInfo,
     ) -> Result<String, TezosXRuntimeError> {
         unimplemented!("UnimplementedRegistry::compute_alias")
     }
@@ -110,7 +124,24 @@ impl Registry for NotWiredRegistry {
         Err(TezosXRuntimeError::RuntimeNotFound(target_runtime))
     }
 
-    fn compute_alias(&self, alias_info: AliasInfo) -> Result<String, TezosXRuntimeError> {
+    fn alias_exists<Host, KS>(
+        &self,
+        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _journal: &mut Self::Journal,
+        target_runtime: RuntimeId,
+        _alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace,
+    {
+        Err(TezosXRuntimeError::RuntimeNotFound(target_runtime))
+    }
+
+    fn compute_alias(
+        &self,
+        alias_info: &AliasInfo,
+    ) -> Result<String, TezosXRuntimeError> {
         Err(TezosXRuntimeError::RuntimeNotFound(alias_info.runtime))
     }
 
@@ -246,7 +277,27 @@ impl Registry for MockRegistry {
         Ok((self.generated_alias.clone(), resolution))
     }
 
-    fn compute_alias(&self, alias_info: AliasInfo) -> Result<String, TezosXRuntimeError> {
+    fn alias_exists<Host, KS>(
+        &self,
+        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _journal: &mut Self::Journal,
+        target_runtime: RuntimeId,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace,
+    {
+        Ok(self.ensure_alias_calls.borrow().iter().any(|(info, rt)| {
+            let stored_alias = self.compute_alias(info).unwrap_or_default();
+            stored_alias == alias && *rt == target_runtime
+        }))
+    }
+
+    fn compute_alias(
+        &self,
+        alias_info: &AliasInfo,
+    ) -> Result<String, TezosXRuntimeError> {
         if self.injective_aliases {
             Ok(String::from_utf8_lossy(&alias_info.native_address).into_owned())
         } else {
@@ -388,7 +439,24 @@ impl Registry for StubRegistry {
         )
     }
 
-    fn compute_alias(&self, alias_info: AliasInfo) -> Result<String, TezosXRuntimeError> {
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        journal: &mut Self::Journal,
+        target_runtime: RuntimeId,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace,
+    {
+        self.inner.alias_exists(rk, journal, target_runtime, alias)
+    }
+
+    fn compute_alias(
+        &self,
+        alias_info: &AliasInfo,
+    ) -> Result<String, TezosXRuntimeError> {
         if let Some(expected) = self.expected_derivation_runtime {
             assert_eq!(
                 alias_info.runtime, expected,

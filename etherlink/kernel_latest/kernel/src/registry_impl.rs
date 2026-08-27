@@ -24,7 +24,7 @@ use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
 use tezos_evm_runtime::snapshot::{KeyspaceHost, SafeKeyspace};
 use tezos_smart_rollup_host::storage::StorageV1;
 use tezosx_ethereum_runtime::EthereumRuntime;
-use tezosx_interfaces::{Registry, RuntimeInterface};
+use tezosx_interfaces::{AliasResolution, Registry, RuntimeInterface};
 use tezosx_journal::TezosXJournal;
 use tezosx_tezos_runtime::TezosRuntime;
 
@@ -48,31 +48,79 @@ impl Registry for RegistryImpl {
         KS: SafeKeyspace,
         Host: KeyspaceHost<KS>,
     {
+        // The native address is stored in `alias_info` as the UTF-8
+        // bytes of the canonical address string. Decode once for the
+        // forwarder storage payload below; the hash and the
+        // classification record both work on the bytes directly.
+        let native_bytes = alias_info.native_address.clone();
+        let native_address = std::str::from_utf8(&native_bytes).map_err(|e| {
+            tezosx_interfaces::TezosXRuntimeError::ConversionError(format!(
+                "alias_info.native_address is not valid UTF-8: {e}"
+            ))
+        })?;
+        // The alias lives in `target_runtime`, so it is that runtime's
+        // derivation that names it. `alias_info.runtime` is the *source*
+        // runtime of `native_address` — dispatching on it would derive the
+        // alias in the wrong address format.
+        let alias = self.compute_alias(&tezosx_interfaces::AliasInfo {
+            runtime: target_runtime,
+            native_address: native_bytes.clone(),
+        })?;
+        let result = if !self.alias_exists(rk, journal, target_runtime, &alias)? {
+            match target_runtime {
+                tezosx_interfaces::RuntimeId::Tezos => self.tezos.create_alias(
+                    self,
+                    rk,
+                    journal,
+                    &alias,
+                    alias_info,
+                    native_address,
+                    native_public_key,
+                    context,
+                    gas_remaining,
+                ),
+                tezosx_interfaces::RuntimeId::Ethereum => self.ethereum.create_alias(
+                    self,
+                    rk,
+                    journal,
+                    &alias,
+                    alias_info,
+                    native_address,
+                    native_public_key,
+                    context,
+                    gas_remaining,
+                ),
+            }
+        } else {
+            Ok(AliasResolution::build(gas_remaining))
+        };
+        result.map(|resolution| (alias, resolution))
+    }
+
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        journal: &mut Self::Journal,
+        target_runtime: tezosx_interfaces::RuntimeId,
+        alias: &str,
+    ) -> Result<bool, tezosx_interfaces::TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace,
+    {
         match target_runtime {
-            tezosx_interfaces::RuntimeId::Tezos => self.tezos.ensure_alias(
-                self,
-                rk,
-                journal,
-                alias_info,
-                native_public_key,
-                context,
-                gas_remaining,
-            ),
-            tezosx_interfaces::RuntimeId::Ethereum => self.ethereum.ensure_alias(
-                self,
-                rk,
-                journal,
-                alias_info,
-                native_public_key,
-                context,
-                gas_remaining,
-            ),
+            tezosx_interfaces::RuntimeId::Tezos => {
+                self.tezos.alias_exists(rk, journal, alias)
+            }
+            tezosx_interfaces::RuntimeId::Ethereum => {
+                self.ethereum.alias_exists(rk, journal, alias)
+            }
         }
     }
 
     fn compute_alias(
         &self,
-        alias_info: tezosx_interfaces::AliasInfo,
+        alias_info: &tezosx_interfaces::AliasInfo,
     ) -> Result<String, tezosx_interfaces::TezosXRuntimeError> {
         match alias_info.runtime {
             tezosx_interfaces::RuntimeId::Tezos => {
@@ -158,12 +206,16 @@ impl Registry for RegistryImpl {
 mod tests {
     use super::*;
     use alloy_primitives::{hex::FromHex, Address, Bytes};
+    use pretty_assertions::assert_eq;
     use revm_etherlink::helpers::storage::bytes_hash;
     use revm_etherlink::storage::world_state_handler::{
         AccountInfo, AccountOrigin, StorageAccount,
     };
+    use tezos_crypto_rs::hash::ContractKt1Hash;
     use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
-    use tezosx_interfaces::{Classification, Gas, RuntimeId, ALIAS_LOOKUP_COST};
+    use tezos_execution::{context, NULL_PKH};
+    use tezos_smart_rollup::types::PublicKeyHash;
+    use tezosx_interfaces::{Classification, Gas, Origin, RuntimeId, ALIAS_LOOKUP_COST};
     use tezosx_journal::TezosXJournal;
 
     #[test]
@@ -303,5 +355,129 @@ mod tests {
             .unwrap();
         assert_eq!(class, Classification::Native);
         assert_eq!(consumed, ALIAS_LOOKUP_COST);
+    }
+
+    #[test]
+    fn ensure_alias_is_idempotent_no_op() {
+        // First branch of the function. A second call with the same
+        // input must return the same address with the gas budget
+        // unchanged. The first call deploys; the second is just a
+        // read of the classification path.
+        let registry = RegistryImpl::default();
+        let mut rk = RuntimeKeyspaces::default();
+        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
+        let native_address = "0x3333333333333333333333333333333333333333";
+        let alias_info = tezosx_interfaces::AliasInfo {
+            native_address: native_address.as_bytes().to_vec(),
+            runtime: RuntimeId::Ethereum,
+        };
+        let first = registry
+            .ensure_alias(
+                &mut rk,
+                &mut journal,
+                alias_info.clone(),
+                None,
+                RuntimeId::Ethereum,
+                tezosx_interfaces::CrossRuntimeContext {
+                    block_number: U256::from(0),
+                    timestamp: U256::from(0),
+                },
+                tezosx_interfaces::Gas::new(100_000, RuntimeId::Ethereum),
+            )
+            .unwrap();
+
+        // The first call materialized the alias: the classification is
+        // staged in the EVM journal (it flushes to durable storage at
+        // commit), and it points back at the native address.
+        let alias = Address::from_hex(&first.0).unwrap();
+        assert_eq!(
+            journal.evm.layered_state.pending_alias_origin(&alias),
+            Some(Origin::Alias(alias_info.clone()))
+        );
+
+        let second = registry
+            .ensure_alias(
+                &mut rk,
+                &mut journal,
+                alias_info,
+                None,
+                RuntimeId::Ethereum,
+                tezosx_interfaces::CrossRuntimeContext {
+                    block_number: U256::from(0),
+                    timestamp: U256::from(0),
+                },
+                tezosx_interfaces::Gas::new(100_000, RuntimeId::Ethereum),
+            )
+            .unwrap();
+        assert_eq!(first.0, second.0);
+        assert_eq!(
+            second.1.gas_remaining,
+            tezosx_interfaces::Gas::new(100_000, RuntimeId::Ethereum)
+        );
+    }
+
+    #[test]
+    fn ensure_alias_is_idempotent_no_op_michelson() {
+        // Companion to `ensure_alias_is_idempotent_no_op`, driven from the
+        // Michelson runtime: the alias of an EVM address is a KT1 whose
+        // classification `create_alias` writes durably, so the second call
+        // only reads it back and leaves the gas budget unchanged.
+        let registry = RegistryImpl::default();
+        let mut rk = RuntimeKeyspaces::default();
+        // Originating the forwarder snapshots the Michelson world state, so
+        // seed the subtree the way migration does in production.
+        let null_pkh = PublicKeyHash::from_b58check(NULL_PKH).unwrap();
+        context::implicit_from_public_key_hash(&null_pkh)
+            .unwrap()
+            .allocate(rk.host_mut())
+            .unwrap();
+
+        let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
+        let native_address = "0x3333333333333333333333333333333333333333";
+        let alias_info = tezosx_interfaces::AliasInfo {
+            native_address: native_address.as_bytes().to_vec(),
+            runtime: RuntimeId::Ethereum,
+        };
+        let budget = Gas::new(5_000_000, RuntimeId::Tezos);
+        let first = registry
+            .ensure_alias(
+                &mut rk,
+                &mut journal,
+                alias_info.clone(),
+                None,
+                RuntimeId::Tezos,
+                tezosx_interfaces::CrossRuntimeContext {
+                    block_number: U256::from(0),
+                    timestamp: U256::from(0),
+                },
+                budget,
+            )
+            .unwrap();
+
+        // The first call materialized the alias: the KT1 carries the
+        // classification record pointing back at the EVM address.
+        let kt1 = ContractKt1Hash::from_base58_check(&first.0).unwrap();
+        let account = context::originated_from_kt1(&kt1).unwrap();
+        assert_eq!(
+            account.origin(rk.host()).unwrap(),
+            Some(Origin::Alias(alias_info.clone()))
+        );
+
+        let second = registry
+            .ensure_alias(
+                &mut rk,
+                &mut journal,
+                alias_info,
+                None,
+                RuntimeId::Tezos,
+                tezosx_interfaces::CrossRuntimeContext {
+                    block_number: U256::from(0),
+                    timestamp: U256::from(0),
+                },
+                budget,
+            )
+            .unwrap();
+        assert_eq!(first.0, second.0);
+        assert_eq!(second.1.gas_remaining, budget);
     }
 }

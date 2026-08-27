@@ -97,7 +97,26 @@ pub trait Registry {
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace;
 
-    fn compute_alias(&self, alias_info: AliasInfo) -> Result<String, TezosXRuntimeError>;
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        journal: &mut Self::Journal,
+        target_runtime: RuntimeId,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace;
+
+    /// Derive the alias naming `alias_info.native_address` inside
+    /// `alias_info.runtime`.
+    ///
+    /// Note the direction: the `runtime` field here is the runtime the
+    /// alias *lives in* (the target), not the native address's own
+    /// runtime. It is the opposite of the [`AliasInfo`] stored in an
+    /// `Origin::Alias` record, whose `runtime` names the source.
+    fn compute_alias(&self, alias_info: &AliasInfo)
+        -> Result<String, TezosXRuntimeError>;
 
     fn address_from_string(
         &self,
@@ -142,39 +161,31 @@ pub trait Registry {
 pub trait RuntimeInterface {
     type Journal;
 
-    /// Idempotently ensure that the alias of `alias_info` exists in
-    /// this runtime. `alias_info.runtime` is the source runtime where
-    /// the underlying native account lives, and `alias_info.native_address`
-    /// holds the UTF-8 bytes of its canonical address string.
-    ///
-    /// `gas_remaining` is the caller's remaining budget in this runtime
-    /// gas units. Returns `(alias, AliasResolution)`. See
-    /// [`AliasResolution`] for the meaning of each field. Fails if the
-    /// budget is exceeded.
-    ///
-    /// Three branches:
-    /// - if the alias account already has an alias classification
-    ///   recorded, the call is a no-op and returns the address with
-    ///   `gas_remaining` unchanged;
-    /// - if the alias account exists with forwarder bytecode but the
-    ///   classification path is empty (a legacy account from before
-    ///   this work), the call writes the classification only and
-    ///   skips the redeploy;
-    /// - otherwise the call deploys the forwarder and records the
-    ///   classification.
     #[allow(clippy::too_many_arguments)]
-    fn ensure_alias<Host, KS>(
+    fn create_alias<Host, KS>(
         &self,
         registry: &impl Registry<Journal = Self::Journal>,
         rk: &mut RuntimeKeyspaces<Host, KS>,
         journal: &mut Self::Journal,
+        alias: &str,
         alias_info: AliasInfo,
+        native_address: &str,
         native_public_key: Option<&[u8]>,
         context: CrossRuntimeContext,
         gas_remaining: Gas,
-    ) -> Result<(String, AliasResolution), TezosXRuntimeError>
+    ) -> Result<AliasResolution, TezosXRuntimeError>
     where
         Host: KeyspaceHost<KS>,
+        KS: SafeKeyspace;
+
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        journal: &mut Self::Journal,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: StorageV1,
         KS: SafeKeyspace;
 
     fn compute_alias(&self, native_address: &[u8]) -> Result<String, TezosXRuntimeError>;
@@ -267,7 +278,7 @@ pub fn translate_original_source<R: Registry>(
     if target == source.runtime() {
         Ok(source.original_address().to_string())
     } else {
-        registry.compute_alias(AliasInfo {
+        registry.compute_alias(&AliasInfo {
             runtime: target,
             native_address: source.original_address().as_bytes().to_vec(),
         })

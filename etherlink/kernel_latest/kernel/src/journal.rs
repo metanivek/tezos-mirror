@@ -123,7 +123,7 @@ pub fn fake_top_level_call_from_tezos_operation(
     let Some(Ok(source)) = operation.content.first().map(|c| c.source()) else {
         return;
     };
-    let alias = registry.compute_alias(AliasInfo {
+    let alias = registry.compute_alias(&AliasInfo {
         runtime: RuntimeId::Ethereum,
         native_address: canonicalize_native_address(
             RuntimeId::Tezos,

@@ -1269,7 +1269,7 @@ fn tezosx_resolve_source_alias_readonly(
     // If either formula changes, this read-only path must change
     // too.
     let alias = registry
-        .compute_alias(AliasInfo {
+        .compute_alias(&AliasInfo {
             runtime: target_runtime,
             native_address: native_bytes,
         })
@@ -1503,7 +1503,7 @@ where
         .cast_and_consume_milligas(DERIVE_ALIAS_MILLIGAS)
         .map_err(|_| mir::interpreter::InterpretError::OutOfGas)?;
     let derived = registry
-        .compute_alias(tezosx_interfaces::AliasInfo {
+        .compute_alias(&tezosx_interfaces::AliasInfo {
             runtime: target_runtime,
             native_address: basis.clone(),
         })

@@ -491,7 +491,7 @@ fn dispatch_resolve_address<
             // Derive the target alias.
             charge(gas, DERIVE_ALIAS_STRING_COST)?;
             let derived = registry
-                .compute_alias(AliasInfo {
+                .compute_alias(&AliasInfo {
                     runtime: target_runtime,
                     native_address: basis.clone(),
                 })
