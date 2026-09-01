@@ -94,7 +94,7 @@ where
     let payload = rk.base().get(&DELAYED_INPUT_KEY).unwrap();
     let transaction = Transaction::from_rlp_bytes(&payload).unwrap().into();
     let mut delayed_inbox = DelayedInbox::from_base(rk.base()).unwrap();
-    let common = fetch_common_config(&mut rk);
+    let common = fetch_common_config(rk.host(), rk.base());
     delayed_inbox
         .save_transaction(&mut rk, transaction, 0.into(), 0u32, &common)
         .unwrap();

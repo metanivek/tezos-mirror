@@ -298,19 +298,12 @@ pub fn fetch_tezosx_configuration(
     )
 }
 
-pub fn fetch_common_config<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> CommonConfig
-where
-    Host: StorageV1,
-    KS: KeySpace,
-{
-    let tezos_contracts = {
-        let (host, base) = rk.parts_mut();
-        fetch_tezos_contracts(host, base)
-    };
+pub fn fetch_common_config(host: &impl StorageV1, base: &impl KeySpace) -> CommonConfig {
+    let tezos_contracts = fetch_tezos_contracts(host, base);
     let maximum_allowed_ticks =
-        read_maximum_allowed_ticks(rk.base()).unwrap_or(MAX_ALLOWED_TICKS);
-    let enable_fa_bridge = is_enable_fa_bridge(rk.base());
-    let evm_node_flag = evm_node_flag(rk.host(), rk.base());
+        read_maximum_allowed_ticks(base).unwrap_or(MAX_ALLOWED_TICKS);
+    let enable_fa_bridge = is_enable_fa_bridge(base);
+    let evm_node_flag = evm_node_flag(host, base);
     CommonConfig {
         tezos_contracts,
         maximum_allowed_ticks,
@@ -325,7 +318,7 @@ where
     KS: KeySpace,
 {
     let sequencer = sequencer(rk.host()).unwrap_or_default();
-    let common = fetch_common_config(rk);
+    let common = fetch_common_config(rk.host(), rk.base());
     let dal: Option<DalConfiguration> =
         fetch_dal_configuration(rk.base(), common.evm_node_flag);
     match sequencer {
