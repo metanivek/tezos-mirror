@@ -70,6 +70,15 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
         &mut self.host
     }
 
+    /// The host and the `/base` keyspace, lent out together.
+    ///
+    /// For callers that only need those two, not the full keyspace set, and
+    /// so cannot go through `host_mut`/`base_mut` alone because they need
+    /// both borrows alive at once.
+    pub fn base_parts_mut(&mut self) -> (&mut Host, &mut KS) {
+        (&mut self.host, &mut self.base)
+    }
+
     /// Open a frame on every keyspace.
     ///
     /// On `Err`, some keyspaces may be framed and some not: the caller must

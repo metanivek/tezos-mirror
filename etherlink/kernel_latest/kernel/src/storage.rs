@@ -1484,7 +1484,8 @@ mod tests {
         // Fresh storage bootstraps to the current version.
         {
             let mut rk = RuntimeKeyspaces::default();
-            crate::init_storage_versioning(&mut rk).unwrap();
+            let (host, base) = rk.base_parts_mut();
+            crate::init_storage_versioning(host, base).unwrap();
             assert_eq!(
                 super::read_storage_version(rk.base()).unwrap(),
                 super::STORAGE_VERSION
@@ -1497,7 +1498,8 @@ mod tests {
             rk.base_mut()
                 .set(&super::STORAGE_VERSION_KEY, 46u64.to_le_bytes())
                 .unwrap();
-            crate::init_storage_versioning(&mut rk).unwrap();
+            let (host, base) = rk.base_parts_mut();
+            crate::init_storage_versioning(host, base).unwrap();
             assert_eq!(
                 rk.base().get(&super::STORAGE_VERSION_KEY).unwrap(),
                 46u64.to_le_bytes()
@@ -1515,7 +1517,8 @@ mod tests {
                     &46u64.to_le_bytes(),
                 )
                 .unwrap();
-            crate::init_storage_versioning(&mut rk).unwrap();
+            let (host, base) = rk.base_parts_mut();
+            crate::init_storage_versioning(host, base).unwrap();
             assert_eq!(
                 rk.base().get(&super::STORAGE_VERSION_KEY).unwrap(),
                 46u64.to_le_bytes()
