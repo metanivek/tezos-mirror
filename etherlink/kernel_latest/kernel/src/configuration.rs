@@ -26,7 +26,6 @@ use tezos_crypto_rs::{
 };
 use tezos_evm_logging::{log, Level::*};
 use tezos_evm_runtime::runtime::evm_node_flag;
-use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
 use tezos_smart_rollup_encoding::public_key::PublicKey;
 use tezos_smart_rollup_host::storage::StorageV1;
 use tezos_smart_rollup_keyspace::KeySpace;
@@ -312,18 +311,14 @@ pub fn fetch_common_config(host: &impl StorageV1, base: &impl KeySpace) -> Commo
     }
 }
 
-pub fn fetch_configuration<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> Configuration
-where
-    Host: StorageV1,
-    KS: KeySpace,
-{
-    let sequencer = sequencer(rk.host()).unwrap_or_default();
-    let common = fetch_common_config(rk.host(), rk.base());
+pub fn fetch_configuration(host: &impl StorageV1, base: &impl KeySpace) -> Configuration {
+    let sequencer = sequencer(host).unwrap_or_default();
+    let common = fetch_common_config(host, base);
     let dal: Option<DalConfiguration> =
-        fetch_dal_configuration(rk.base(), common.evm_node_flag);
+        fetch_dal_configuration(base, common.evm_node_flag);
     match sequencer {
         Some(sequencer) => {
-            let delayed_bridge = read_delayed_transaction_bridge(rk.base())
+            let delayed_bridge = read_delayed_transaction_bridge(base)
                 // The sequencer must declare a delayed transaction bridge. This
                 // default value is only to facilitate the testing.
                 .unwrap_or_else(|| {
@@ -334,9 +329,9 @@ where
                 });
             // Default to 5 minutes.
             let max_blueprint_lookahead_in_seconds =
-                max_blueprint_lookahead_in_seconds(rk.base())
+                max_blueprint_lookahead_in_seconds(base)
                     .unwrap_or(DEFAULT_MAX_BLUEPRINT_LOOKAHEAD_IN_SECONDS);
-            match DelayedInbox::from_base(rk.base()) {
+            match DelayedInbox::from_base(base) {
                 Ok(delayed_inbox) => Configuration {
                     common,
                     mode: ConfigurationMode::Sequencer(SequencerConfig {

@@ -1158,8 +1158,8 @@ mod tests {
         // storage contains no sequencer public key.
         use crate::configuration::fetch_configuration;
 
-        let mut rk = RuntimeKeyspaces::default();
-        let conf = fetch_configuration(&mut rk);
+        let rk = RuntimeKeyspaces::default();
+        let conf = fetch_configuration(rk.host(), rk.base());
         assert!(
             matches!(conf.mode, ConfigurationMode::Proxy),
             "fetch_configuration should return Proxy when no sequencer key is stored"
