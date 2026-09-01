@@ -766,7 +766,7 @@ pub fn read_admin(base: &impl KeySpace) -> Option<ContractKt1Hash> {
     get_b58_kt1(base, &ADMIN_KEY)
 }
 
-pub fn read_sequencer_governance(host: &mut impl StorageV1) -> Option<ContractKt1Hash> {
+pub fn read_sequencer_governance(host: &impl StorageV1) -> Option<ContractKt1Hash> {
     read_b58_kt1(host, &SEQUENCER_GOVERNANCE)
 }
 

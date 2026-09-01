@@ -170,26 +170,22 @@ impl TezosContracts {
 
 // The `/evm` contracts are read through the raw host; the `/base` ones go
 // through the keyspace handle.
-fn fetch_tezos_contracts<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> TezosContracts
-where
-    Host: StorageV1,
-    KS: KeySpace,
-{
+fn fetch_tezos_contracts(host: &impl StorageV1, base: &impl KeySpace) -> TezosContracts {
     // 1. Fetch the kernel's ticketer, returns `None` if it is badly
     //    encoded or absent.
-    let ticketer = read_ticketer(rk.host());
+    let ticketer = read_ticketer(host);
     // 2. Fetch the kernel's administrator, returns `None` if it is badly
     //    encoded or absent.
-    let admin = read_admin(rk.base());
+    let admin = read_admin(base);
     // 3. Fetch the sequencer governance, returns `None` if it is badly
     //    encoded or absent.
-    let sequencer_governance = read_sequencer_governance(rk.host_mut());
+    let sequencer_governance = read_sequencer_governance(host);
     // 4. Fetch the kernel_governance contract, returns `None` if it is badly
     //    encoded or absent.
-    let kernel_governance = read_kernel_governance(rk.base());
+    let kernel_governance = read_kernel_governance(base);
     // 5. Fetch the kernel_security_governance contract, returns `None` if it is badly
     //    encoded or absent.
-    let kernel_security_governance = read_kernel_security_governance(rk.base());
+    let kernel_security_governance = read_kernel_security_governance(base);
 
     TezosContracts {
         ticketer,
@@ -307,7 +303,10 @@ where
     Host: StorageV1,
     KS: KeySpace,
 {
-    let tezos_contracts = fetch_tezos_contracts(rk);
+    let tezos_contracts = {
+        let (host, base) = rk.parts_mut();
+        fetch_tezos_contracts(host, base)
+    };
     let maximum_allowed_ticks =
         read_maximum_allowed_ticks(rk.base()).unwrap_or(MAX_ALLOWED_TICKS);
     let enable_fa_bridge = is_enable_fa_bridge(rk.base());
