@@ -545,7 +545,8 @@ where
 {
     let mut delayed_txs = vec![];
     let mut total_size = current_blueprint_size;
-    let experimental_features = ExperimentalFeatures::read_from_storage(rk);
+    let experimental_features =
+        ExperimentalFeatures::read_from_storage(rk.host(), rk.base());
     for tx_hash in delayed_hashes {
         let tx = delayed_inbox.find_transaction(rk.base(), tx_hash)?;
         match tx {

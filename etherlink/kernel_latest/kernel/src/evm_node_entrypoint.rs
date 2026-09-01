@@ -286,7 +286,10 @@ where
         transaction_bytes.len()
     );
 
-    let chain_config = fetch_tezosx_configuration(&mut rk);
+    let chain_config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     let blueprint_header = match read_current_blueprint_header(rk.base()) {
         Ok(h) => h,
         Err(err) => {
@@ -786,7 +789,10 @@ where
         RunCodeError::Execution(format!("cannot decode the input: {e:?}"))
     })?;
 
-    let chain_config = fetch_tezosx_configuration(rk);
+    let chain_config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     // Reading the block header is durable-storage work: a failure here is
     // infrastructure, not the caller's script being wrong.
     let blueprint_header = read_current_blueprint_header(rk.base()).map_err(|err| {

@@ -215,7 +215,10 @@ where
     ];
     __trace_kernel_add_attrs!(__attrs);
 
-    let config = fetch_tezosx_configuration(rk);
+    let config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     let block_constants = block_constants(
         rk.host_mut(),
         &config,
@@ -355,7 +358,10 @@ where
     ];
     __trace_kernel_add_attrs!(__attrs);
 
-    let config = fetch_tezosx_configuration(rk);
+    let config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     let block_constants = block_constants(
         rk.host_mut(),
         &config,

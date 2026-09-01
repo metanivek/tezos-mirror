@@ -404,7 +404,8 @@ impl Evaluation {
             crate::retrieve_minimum_base_fee_per_gas(rk.host_mut());
         let da_fee = crate::retrieve_da_fee(rk.host_mut())?;
         let coinbase = read_sequencer_pool_address(rk.host()).unwrap_or_default();
-        let experimental_features = ExperimentalFeatures::read_from_storage(rk);
+        let experimental_features =
+            ExperimentalFeatures::read_from_storage(rk.host(), rk.base());
         let debug_features = DebugFeatures::read_from_storage(rk.base());
 
         let current_block = block_storage::read_current_etherlink_block(rk.host_mut());
