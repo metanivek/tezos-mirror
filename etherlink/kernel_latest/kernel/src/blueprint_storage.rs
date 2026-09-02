@@ -26,6 +26,7 @@ use tezos_ethereum::rlp_helpers::{
     decode_timestamp,
 };
 use tezos_evm_logging::{log, Level::*};
+#[cfg(test)]
 use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
 use tezos_evm_runtime::snapshot::SafeKeyspace;
 use tezos_smart_rollup::types::Timestamp;
@@ -708,8 +709,7 @@ fn parse_and_validate_blueprint(
             // timestamps.
             #[cfg(not(feature = "benchmark"))]
             {
-                let last_seen_l1_timestamp =
-                    read_last_info_per_level_timestamp(base)?;
+                let last_seen_l1_timestamp = read_last_info_per_level_timestamp(base)?;
                 let accepted_bound = Timestamp::from(
                     last_seen_l1_timestamp
                         .i64()
@@ -844,48 +844,37 @@ fn read_all_chunks_and_validate(
     }
 }
 
-pub fn read_blueprint<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+pub fn read_blueprint(
+    host: &impl StorageV1,
+    base: &mut impl SafeKeyspace,
     config: &Configuration,
     number: U256,
     previous_timestamp: Timestamp,
     previous_chain_header: &EVMBlockHeader,
-) -> anyhow::Result<(Option<Blueprint>, usize)>
-where
-    Host: StorageV1,
-    KS: SafeKeyspace,
-{
-    let exists = blueprint_exists(rk.base(), number)?;
+) -> anyhow::Result<(Option<Blueprint>, usize)> {
+    let exists = blueprint_exists(base, number)?;
     if exists {
-        let nb_chunks = read_blueprint_nb_chunks(rk.base(), number)?;
-        let current_generation =
-            read_current_generation_or_default(rk.base(), U256::zero())?;
+        let nb_chunks = read_blueprint_nb_chunks(base, number)?;
+        let current_generation = read_current_generation_or_default(base, U256::zero())?;
         let blueprint_generation =
-            read_blueprint_generation_or_default(rk.base(), number, U256::zero())?;
+            read_blueprint_generation_or_default(base, number, U256::zero())?;
         // If the generation is not the current one, the blueprint is stale
         if blueprint_generation < current_generation {
-            invalidate_blueprint(
-                rk.base_mut(),
-                number,
-                &BlueprintValidity::StaleBlueprint,
-            )?;
+            invalidate_blueprint(base, number, &BlueprintValidity::StaleBlueprint)?;
             return Ok((None, 0));
         }
         log!(Benchmarking, "Number of chunks in blueprint: {}", nb_chunks);
         // All chunks are available
-        let (blueprint, size) = {
-            let (host, base) = rk.parts_mut();
-            read_all_chunks_and_validate(
-                host,
-                base,
-                number,
-                nb_chunks,
-                config,
-                previous_chain_header,
-                previous_timestamp,
-                number,
-            )?
-        };
+        let (blueprint, size) = read_all_chunks_and_validate(
+            host,
+            base,
+            number,
+            nb_chunks,
+            config,
+            previous_chain_header,
+            previous_timestamp,
+            number,
+        )?;
         Ok((blueprint, size))
     } else {
         log!(Benchmarking, "Number of chunks in blueprint: {}", 0);
@@ -919,7 +908,15 @@ where
                 EVMBlockHeader::genesis_header(),
             ),
         };
-    read_blueprint(rk, config, number, previous_timestamp, &block_header)
+    let (host, base) = rk.base_parts_mut();
+    read_blueprint(
+        host,
+        base,
+        config,
+        number,
+        previous_timestamp,
+        &block_header,
+    )
 }
 
 pub fn drop_blueprint(base: &mut impl KeySpace, number: U256) -> Result<(), Error> {

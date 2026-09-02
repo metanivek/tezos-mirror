@@ -527,8 +527,10 @@ mod tests {
         .expect("fetch failed");
 
         // The dummy chunk in the inbox is registered at block 10
+        let (host, base) = rk.base_parts_mut();
         if read_blueprint(
-            &mut rk,
+            host,
+            base,
             &conf,
             U256::from(10),
             Timestamp::from(0),

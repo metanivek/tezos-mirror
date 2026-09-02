@@ -295,8 +295,10 @@ where
     KS: SafeKeyspace,
 {
     log!(Debug, "Next blueprint number: {:?}", next_bip_number);
-    let (blueprint, size) =
-        read_blueprint(rk, config, next_bip_number, timestamp, chain_header)?;
+    let (blueprint, size) = {
+        let (host, base) = rk.base_parts_mut();
+        read_blueprint(host, base, config, next_bip_number, timestamp, chain_header)?
+    };
     log!(Benchmarking, "Size of blueprint: {}", size);
     match blueprint {
         Some(blueprint) => {
@@ -443,13 +445,18 @@ where
             let (number, previous_timestamp, ref previous_chain_header) =
                 get_next_bip_info(rk.base());
 
-            match read_blueprint(
-                rk,
-                config,
-                number,
-                previous_timestamp,
-                previous_chain_header,
-            )? {
+            let blueprint = {
+                let (host, base) = rk.base_parts_mut();
+                read_blueprint(
+                    host,
+                    base,
+                    config,
+                    number,
+                    previous_timestamp,
+                    previous_chain_header,
+                )?
+            };
+            match blueprint {
                 (Some(blueprint), _) if blueprint.transactions.len() == 1 => {
                     // Blueprints with one transaction can be treated as certificates that given
                     // transactions indeed trigger WASM traps. If said transaction is part of the

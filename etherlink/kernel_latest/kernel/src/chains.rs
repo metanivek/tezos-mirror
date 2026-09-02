@@ -565,7 +565,8 @@ impl TezosXChainConfig {
         delayed_inbox: &DelayedInbox,
         current_blueprint_size: usize,
         block_number: U256,
-    ) -> anyhow::Result<(DelayedTransactionFetchingResult<TezosXTransaction>, usize)> {
+    ) -> anyhow::Result<(DelayedTransactionFetchingResult<TezosXTransaction>, usize)>
+    {
         crate::blueprint_storage::fetch_hashes_from_delayed_inbox(
             host,
             base,
