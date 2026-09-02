@@ -324,7 +324,8 @@ where
     // Performing health check to recover from a potentially corrupted durable storage. We do it
     // before the stage one because stage one reboots and would clear the flag.
     if !configuration.common.evm_node_flag {
-        health_check(rk, &mut configuration)?;
+        let (host, base) = rk.base_parts_mut();
+        health_check(host, base, &mut configuration)?;
     }
 
     // Initialize custom precompile

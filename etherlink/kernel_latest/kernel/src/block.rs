@@ -424,38 +424,35 @@ where
     Ok(())
 }
 
-pub fn health_check<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+pub fn health_check<Host>(
+    host: &mut Host,
+    base: &mut impl SafeKeyspace,
     config: &mut Configuration,
 ) -> Result<(), anyhow::Error>
 where
-    Host: WasmHost + KeyspaceHost<KS>,
-    KS: SafeKeyspace,
+    Host: StorageV1 + WasmHost,
 {
-    if rk.host().last_run_aborted()? {
+    if host.last_run_aborted()? {
         log!(Error, "Something went wrong during previous kernel_run");
 
-        if !inside_stage_one(rk.base()) {
+        if !inside_stage_one(base) {
             // Something went wrong outside stage one, leading us to assume this is most certainly
             // related to stage 2. We clean-up potential leftovers of the interrupted execution.
 
-            allow_path_not_found(rk.host_mut().store_delete(&TMP_PATH))?;
-            allow_path_not_found(rk.host_mut().store_delete(&EVM_BLOCK_IN_PROGRESS))?;
+            allow_path_not_found(host.store_delete(&TMP_PATH))?;
+            allow_path_not_found(host.store_delete(&EVM_BLOCK_IN_PROGRESS))?;
 
             let (number, previous_timestamp, ref previous_chain_header) =
-                get_next_bip_info(rk.base());
+                get_next_bip_info(base);
 
-            let blueprint = {
-                let (host, base) = rk.base_parts_mut();
-                read_blueprint(
-                    host,
-                    base,
-                    config,
-                    number,
-                    previous_timestamp,
-                    previous_chain_header,
-                )?
-            };
+            let blueprint = read_blueprint(
+                host,
+                base,
+                config,
+                number,
+                previous_timestamp,
+                previous_chain_header,
+            )?;
             match blueprint {
                 (Some(blueprint), _) if blueprint.transactions.len() == 1 => {
                     // Blueprints with one transaction can be treated as certificates that given
@@ -483,16 +480,16 @@ where
                             .collect();
 
                         for hash in potential_culprits {
-                            delayed_inbox.delete(rk.base_mut(), Hash(hash))?;
+                            delayed_inbox.delete(base, Hash(hash))?;
                             Event::DroppedDelayedTransaction(hash)
-                                .store(rk.base_mut(), &config.common)?;
+                                .store(base, &config.common)?;
                         }
                     }
                 }
                 _ => (),
             }
 
-            drop_blueprint(rk.base_mut(), number)?;
+            drop_blueprint(base, number)?;
         }
 
         return Ok(());
