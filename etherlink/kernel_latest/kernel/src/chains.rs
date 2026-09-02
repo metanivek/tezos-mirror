@@ -558,19 +558,17 @@ impl TezosXChainConfig {
         }
     }
 
-    pub fn fetch_hashes_from_delayed_inbox<Host, KS>(
-        rk: &RuntimeKeyspaces<Host, KS>,
+    pub fn fetch_hashes_from_delayed_inbox(
+        host: &impl StorageV1,
+        base: &impl SafeKeyspace,
         delayed_hashes: Vec<crate::delayed_inbox::Hash>,
         delayed_inbox: &DelayedInbox,
         current_blueprint_size: usize,
         block_number: U256,
-    ) -> anyhow::Result<(DelayedTransactionFetchingResult<TezosXTransaction>, usize)>
-    where
-        Host: StorageV1,
-        KS: SafeKeyspace,
-    {
+    ) -> anyhow::Result<(DelayedTransactionFetchingResult<TezosXTransaction>, usize)> {
         crate::blueprint_storage::fetch_hashes_from_delayed_inbox(
-            rk,
+            host,
+            base,
             delayed_hashes,
             delayed_inbox,
             current_blueprint_size,
