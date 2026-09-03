@@ -611,4 +611,54 @@ mod tests {
              0d0d0d0d0d0d0d0d83000102880100000000000000820200"
         );
     }
+
+    /// Distinct from [`some_log`] under (address, topics, data).
+    fn other_log() -> Log {
+        Log {
+            address: Address::ZERO,
+            data: LogData::new_unchecked(vec![B256::from([1; 32])], Bytes::new()),
+        }
+    }
+
+    // The two tests below run the same three frames and emit the same
+    // sequence of logs — the very same log at a frame and at its parent,
+    // with a distinct one in between — for opposite interleavings. The
+    // receipt is identical; only positions recorded at emission tell the
+    // two apart.
+
+    #[test]
+    fn position_orders_identical_logs_inner_first() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer); // run()
+        enter(&mut tracer); // inner()
+        tracer.inject_log(some_log());
+        enter(&mut tracer); // ping()
+        tracer.inject_log(other_log());
+        leave(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![1]);
+        assert_eq!(positions(&tracer, 1), vec![0]);
+        assert_eq!(positions(&tracer, 2), vec![0]);
+    }
+
+    #[test]
+    fn position_orders_identical_logs_outer_first() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer); // run()
+        tracer.inject_log(some_log());
+        enter(&mut tracer); // inner()
+        enter(&mut tracer); // ping()
+        tracer.inject_log(other_log());
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![0]);
+        assert_eq!(positions(&tracer, 1), vec![1]);
+        assert_eq!(positions(&tracer, 2), vec![0]);
+    }
 }
