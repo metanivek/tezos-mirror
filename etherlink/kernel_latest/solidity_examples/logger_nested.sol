@@ -8,8 +8,15 @@ pragma solidity >=0.8.2 <0.9.0;
 contract LoggerB {
     event LogFromB(uint256 indexed value);
 
+    uint256 public counter;
+
     function logValue(uint256 value) public {
         emit LogFromB(value);
+    }
+
+    // Takes up a call frame without emitting anything.
+    function bump() public {
+        counter += 1;
     }
 }
 
@@ -26,6 +33,19 @@ contract LoggerA {
     }
 
     function run(uint256 first, uint256 second, uint256 third) public {
+        emit LogFromA(first);
+        b.logValue(second);
+        emit LogFromA(third);
+    }
+
+    // Calls LoggerB twice, first silently, and emits a log after each: the
+    // log after the silent call has a position no log order can derive.
+    function runAfterSilentCall(
+        uint256 first,
+        uint256 second,
+        uint256 third
+    ) public {
+        b.bump();
         emit LogFromA(first);
         b.logValue(second);
         emit LogFromA(third);

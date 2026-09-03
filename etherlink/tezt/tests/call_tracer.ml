@@ -585,6 +585,103 @@ let test_trace_transaction_call_tracer_with_logs =
       ~error_msg:"Wrong LoggerB log position, expected %R but got %L") ;
   unit
 
+let test_trace_transaction_call_tracer_log_position_after_silent_call =
+  register_all
+    ~__FILE__
+    ~kernels:[Latest]
+    ~tags:["evm"; "rpc"; "trace"; "call_trace"; "with_logs"; "position"]
+    ~title:
+      "debug_traceTransaction with calltracer positions logs after a silent \
+       sub-call"
+    ~da_fee:Wei.zero
+    ~time_between_blocks:Nothing
+  @@ fun {sequencer; evm_version; _} _protocol ->
+  let endpoint = Evm_node.endpoint sequencer in
+  let sender = Eth_account.bootstrap_accounts.(0) in
+  (* [runAfterSilentCall] calls [LoggerB.bump] (silent), logs, calls
+     [LoggerB.logValue], logs again: positions 1 and 2. The silent frame
+     counts, which the transaction's log order alone cannot show. *)
+  let* logger_nested = Solidity_contracts.logger_nested evm_version in
+  let* () =
+    Eth_cli.add_abi ~label:logger_nested.label ~abi:logger_nested.abi ()
+  in
+  let* contract_address, _ =
+    send_transaction_to_sequencer
+      (Eth_cli.deploy
+         ~source_private_key:sender.Eth_account.private_key
+         ~endpoint
+         ~abi:logger_nested.label
+         ~bin:logger_nested.bin)
+      sequencer
+  in
+  let* _ = produce_block sequencer in
+  let value_a1 = 251197 in
+  let value_b = 424242 in
+  let value_a2 = 999001 in
+  let* tx_hash =
+    send_transaction_to_sequencer
+      (Eth_cli.contract_send
+         ~source_private_key:sender.private_key
+         ~endpoint
+         ~abi_label:logger_nested.label
+         ~address:contract_address
+         ~method_call:
+           (Format.sprintf
+              "runAfterSilentCall(%d,%d,%d)"
+              value_a1
+              value_b
+              value_a2))
+      sequencer
+  in
+  let* _ = produce_block sequencer in
+  let*@ trace_result =
+    Rpc.trace_transaction
+      ~tracer:"callTracer"
+      ~transaction_hash:tx_hash
+      ~tracer_config:[("withLog", `Bool true); ("onlyTopCall", `Bool false)]
+      sequencer
+  in
+  let log_position log = JSON.(log |-> "position" |> as_string) in
+  let calls = JSON.(trace_result |-> "calls" |> as_list) in
+  Check.(
+    (List.length calls = 2)
+      int
+      ~error_msg:"Wrong number of nested calls, expected %R but got %L") ;
+  (* The silent frame is reported, and carries no logs. *)
+  let silent_call = List.nth calls 0 in
+  Check.(
+    (List.length JSON.(silent_call |-> "logs" |> as_list) = 0)
+      int
+      ~error_msg:"The bump() frame must carry no logs, got %L") ;
+  let logs_a = JSON.(trace_result |-> "logs" |> as_list) in
+  Check.(
+    (List.length logs_a = 2)
+      int
+      ~error_msg:"Wrong number of logs on the LoggerA frame, expected %R got %L") ;
+  Check.(
+    (log_position (List.nth logs_a 0) = "0x1")
+      string
+      ~error_msg:
+        "Wrong position for the log following the silent call, expected %R but \
+         got %L") ;
+  Check.(
+    (log_position (List.nth logs_a 1) = "0x2")
+      string
+      ~error_msg:
+        "Wrong position for the log following both calls, expected %R but got \
+         %L") ;
+  (* The logging frame's own log fires before any of its sub-calls. *)
+  let logs_b = JSON.(List.nth calls 1 |-> "logs" |> as_list) in
+  Check.(
+    (List.length logs_b = 1)
+      int
+      ~error_msg:"Wrong number of logs on the LoggerB frame, expected %R got %L") ;
+  Check.(
+    (log_position (List.hd logs_b) = "0x0")
+      string
+      ~error_msg:"Wrong LoggerB log position, expected %R but got %L") ;
+  unit
+
 let test_trace_transaction_call_trace_certain_depth =
   register_all
     ~__FILE__
@@ -1321,6 +1418,7 @@ let () =
   test_trace_transaction_calltracer_all_types protocols ;
   test_trace_transaction_calltracer_create_to_field protocols ;
   test_trace_transaction_call_tracer_with_logs protocols ;
+  test_trace_transaction_call_tracer_log_position_after_silent_call protocols ;
   test_trace_transaction_call_revert protocols ;
   test_trace_transaction_call_trace_certain_depth protocols ;
   test_trace_transaction_call_trace_revert protocols ;
