@@ -476,3 +476,139 @@ where
         self.inject_log(log);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use revm::primitives::LogData;
+
+    fn tracer(only_top_call: bool) -> CallTracer {
+        CallTracer::new(
+            CallTracerConfig {
+                only_top_call,
+                with_logs: true,
+            },
+            SpecId::default(),
+            None,
+        )
+    }
+
+    /// Enter a frame, as the `call` inspector hook does.
+    fn enter(tracer: &mut CallTracer) {
+        let depth = tracer.call_trace.len() as u16;
+        tracer.call_trace.push(CallTrace::new_minimal_trace(
+            b"CALL".to_vec(),
+            Address::ZERO,
+            U256::ZERO,
+            Vec::new(),
+            depth,
+        ));
+    }
+
+    /// Leave the innermost frame, as the `call_end` inspector hook does.
+    fn leave(tracer: &mut CallTracer) {
+        tracer.end_transaction_layer(0, &Bytes::new(), &InstructionResult::Return);
+    }
+
+    fn some_log() -> Log {
+        Log {
+            address: Address::ZERO,
+            data: LogData::new_unchecked(vec![B256::ZERO], Bytes::new()),
+        }
+    }
+
+    /// Positions recorded on the reported frame at `depth`.
+    fn positions(tracer: &CallTracer, depth: u16) -> Vec<u64> {
+        tracer
+            .pending_traces
+            .iter()
+            .find(|trace| trace.depth == depth)
+            .expect("frame should have been reported")
+            .logs
+            .iter()
+            .flatten()
+            .map(|log| log.position)
+            .collect()
+    }
+
+    #[test]
+    fn position_counts_completed_sub_calls() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer);
+        tracer.inject_log(some_log());
+        enter(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![0, 1]);
+        assert_eq!(positions(&tracer, 1), vec![0]);
+    }
+
+    #[test]
+    fn position_counts_a_sub_call_that_emitted_nothing() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer);
+        enter(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        // A silent sub-call counts — the point of recording at emission time.
+        assert_eq!(positions(&tracer, 0), vec![1]);
+    }
+
+    #[test]
+    fn only_top_call_keeps_positions_at_zero() {
+        let mut tracer = tracer(true);
+        enter(&mut tracer);
+        enter(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(tracer.pending_traces.len(), 1);
+        assert_eq!(positions(&tracer, 0), vec![0]);
+    }
+
+    #[test]
+    fn encoding_carries_the_log_position() {
+        let mut trace = CallTrace::new_minimal_trace(
+            b"CALL".to_vec(),
+            Address::from([25; 20]),
+            U256::from(251197),
+            vec![0x00, 0x01, 0x02],
+            2,
+        );
+        trace.add_to(Some(Address::from([25; 20])));
+        trace.add_gas(Some(5000));
+        trace.add_gas_used(5000);
+        trace.add_output(Some(vec![0x00, 0x01, 0x02]));
+        trace.add_error(Some(vec![0x00, 0x01, 0x02]));
+        trace.add_logs(Some(vec![CallTraceLog {
+            log: Log {
+                address: Address::from([25; 20]),
+                data: LogData::new_unchecked(
+                    vec![B256::from([25; 32]), B256::from([13; 32])],
+                    Bytes::from_static(&[0x00, 0x01, 0x02]),
+                ),
+            },
+            position: 1,
+        }]));
+
+        // Decoded back by `test_decoding_rlp_log_position` in
+        // `etherlink/bin_node/test/test_call_tracer_algo.ml`.
+        assert_eq!(
+            hex::encode(rlp::encode(&trace)),
+            "f8e18443414c4c941919191919191919191919191919191919191919d5\
+             941919191919191919191919191919191919191919a03dd50300000000\
+             00000000000000000000000000000000000000000000000000c9888813\
+             00000000000088881300000000000083000102c483000102c483000102\
+             f86af868f866941919191919191919191919191919191919191919f842\
+             a019191919191919191919191919191919191919191919191919191919\
+             19191919a00d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d\
+             0d0d0d0d0d0d0d0d83000102880100000000000000820200"
+        );
+    }
+}
