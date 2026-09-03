@@ -23,10 +23,7 @@ use revm::{
     Inspector,
 };
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
-use tezos_ethereum::{
-    rlp_helpers::{check_list, decode_field, decode_option, next},
-    Log as RlpLog,
-};
+use tezos_ethereum::rlp_helpers::{check_list, decode_field, decode_option, next};
 use tezos_evm_logging::{log, Level::Debug};
 use tezos_smart_rollup_host::storage::StorageV1;
 
@@ -64,6 +61,31 @@ impl Decodable for CallTracerInput {
     }
 }
 
+/// A log captured on a frame, carrying geth's `position`: the number of
+/// the enclosing frame's sub-calls that had completed when the log fired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTraceLog {
+    pub log: Log,
+    pub position: u64,
+}
+
+impl Encodable for CallTraceLog {
+    fn rlp_append(&self, stream: &mut RlpStream) {
+        stream.begin_list(4);
+        append_address(stream, &self.log.address);
+        let topics: Vec<primitive_types::H256> = self
+            .log
+            .data
+            .topics()
+            .iter()
+            .map(|topic| primitive_types::H256(topic.0))
+            .collect();
+        stream.append_list(&topics);
+        stream.append(&self.log.data.data.to_vec());
+        append_u64_le(stream, &self.position);
+    }
+}
+
 #[derive(Debug)]
 pub struct CallTrace {
     type_: Vec<u8>,
@@ -78,7 +100,7 @@ pub struct CallTrace {
     /// `output` will also be used in revert reason, if there's any.
     output: Option<Vec<u8>>,
     error: Option<Vec<u8>>,
-    logs: Option<Vec<Log>>,
+    logs: Option<Vec<CallTraceLog>>,
     /// `depth` is helpful to reconstruct the tree of call on the EVM node's side.
     depth: u16,
     /// Intrinsic gas of the traced transaction, captured when the frame
@@ -86,6 +108,10 @@ pub struct CallTrace {
     /// accounts intrinsic gas as geth's callTracer does. Added to
     /// `gas_used` at close; not part of the encoded trace.
     initial_gas: u64,
+    /// Sub-calls of this frame that have completed — the length geth's
+    /// `calls` array would have. Stamped on each log as its `position`;
+    /// not part of the encoded trace.
+    completed_calls: u64,
 }
 
 impl Encodable for CallTrace {
@@ -100,23 +126,7 @@ impl Encodable for CallTrace {
         stream.append(&self.input);
         stream.append(&self.output);
         stream.append(&self.error);
-        let logs = self.logs.as_ref().map(|logs| {
-            logs.iter()
-                .map(|Log { address, data }| {
-                    let topics = data
-                        .topics()
-                        .iter()
-                        .map(|topic| primitive_types::H256(topic.0))
-                        .collect();
-                    RlpLog {
-                        address: primitive_types::H160(*address.0),
-                        topics,
-                        data: data.data.to_vec(),
-                    }
-                })
-                .collect::<Vec<RlpLog>>()
-        });
-        append_option_canonical(stream, &logs, |s, logs| s.append_list(logs));
+        append_option_canonical(stream, &self.logs, |s, logs| s.append_list(logs));
         append_u16_le(stream, &self.depth);
     }
 }
@@ -142,6 +152,7 @@ impl CallTrace {
             logs: None,
             depth,
             initial_gas: 0,
+            completed_calls: 0,
         }
     }
 
@@ -187,7 +198,7 @@ impl CallTrace {
         }
     }
 
-    pub fn add_logs(&mut self, logs: Option<Vec<Log>>) {
+    pub fn add_logs(&mut self, logs: Option<Vec<CallTraceLog>>) {
         self.logs = logs;
     }
 }
@@ -250,6 +261,13 @@ impl CallTracer {
                 call_trace.add_error_from_instruction_result(instruction_result);
 
                 self.pending_traces.push(call_trace);
+
+                // Where geth appends the finished child to its parent's
+                // `calls` array. Unreported frames are not appended, so
+                // `only_top_call` keeps every position at 0, as geth does.
+                if let Some(parent) = self.call_trace.last_mut() {
+                    parent.completed_calls += 1;
+                }
             }
         }
     }
@@ -283,7 +301,10 @@ impl CallTracer {
         // The frame that emitted the LOG opcode is the one currently
         // executing, i.e. the frame on top of the stack.
         if let Some(t) = self.call_trace.last_mut() {
-            t.logs.get_or_insert_with(Vec::new).push(log);
+            let position = t.completed_calls;
+            t.logs
+                .get_or_insert_with(Vec::new)
+                .push(CallTraceLog { log, position });
         }
     }
 
