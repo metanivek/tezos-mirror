@@ -50,4 +50,29 @@ contract LoggerA {
         b.logValue(second);
         emit LogFromA(third);
     }
+
+    // Emits the very same log (same address, same topics, same data) at
+    // two nested frames, once from an external self-call and once here.
+    // [runDuplicateInnerFirst] and [runDuplicateOuterFirst] emit the same
+    // logs in the same order, so their receipts are indistinguishable: only
+    // the positions tell the two interleavings apart.
+    function innerThenCall(uint256 value) public {
+        emit LogFromA(value);
+        b.logValue(value);
+    }
+
+    function callThenInner(uint256 value) public {
+        b.logValue(value);
+        emit LogFromA(value);
+    }
+
+    function runDuplicateInnerFirst(uint256 value) public {
+        this.innerThenCall(value);
+        emit LogFromA(value);
+    }
+
+    function runDuplicateOuterFirst(uint256 value) public {
+        emit LogFromA(value);
+        this.callThenInner(value);
+    }
 }
