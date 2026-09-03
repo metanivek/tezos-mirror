@@ -4262,9 +4262,9 @@ let rec http_trace_inner_depth node =
       )
 
 (* Assert the union of a callTracer tree's logs equals [eth_getLogs] for the
-   block, compared as an unordered multiset (the kernel wire format carries no
-   geth [position] field, so no execution order is available). This is the
-   log-parity invariant of the cross-runtime tracing RFC:
+   block, compared as an unordered multiset of (address, topics, data) — the
+   geth [position] field the kernel records has no [eth_getLogs] counterpart.
+   This is the log-parity invariant of the cross-runtime tracing RFC:
    https://linear.app/tezos/document/rfc-debug-tracetransaction-and-debug-traceblockbynumber-with-17e28d426ee1
    Valid on revert paths too: the node drops reverted frames' logs from the
    trace (matching geth), and [eth_getLogs] never carried them. *)
@@ -4926,7 +4926,7 @@ let test_crac_call_tracer_outgoing_leaf () =
       int
       ~error_msg:(prefix ^ ": expected no re-entrant children, got %L")) ;
   (* The gateway frame carries the [CrossRuntimeCallSent] sentinel among its
-     own logs — unordered membership, the wire format carries no position. *)
+     own logs. *)
   let sent_logs =
     List.filter
       (fun l -> trace_log_topic0 l = Some crac_sent_event_topic)
@@ -4939,6 +4939,14 @@ let test_crac_call_tracer_outgoing_leaf () =
         (prefix
        ^ ": the gateway frame must carry exactly 1 CrossRuntimeCallSent \
           sentinel log, got %L")) ;
+  (* The sentinel fires before any gateway sub-call: position 0. *)
+  (match sent_logs with
+  | [sent] ->
+      Check.(
+        (JSON.(sent |-> "position" |> as_string) = "0x0")
+          string
+          ~error_msg:(prefix ^ ": sentinel position %L, expected %R"))
+  | _ -> ()) ;
   (* Log parity over the whole tree (happy path). *)
   let* () =
     assert_crac_trace_log_parity

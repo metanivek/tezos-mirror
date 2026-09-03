@@ -568,6 +568,21 @@ let test_trace_transaction_call_tracer_with_logs =
     (String.lowercase_ascii (log_address log_b) = String.lowercase_ascii addr_b)
       string
       ~error_msg:"LoggerB log misattributed, expected address %R but got %L") ;
+  (* geth [position]: LoggerA's first log precedes the [LoggerB] call (0x0),
+     its second follows it (0x1); LoggerB's own log sits at 0x0. *)
+  let log_position log = JSON.(log |-> "position" |> as_string) in
+  Check.(
+    (log_position log_a1 = "0x0")
+      string
+      ~error_msg:"Wrong first LoggerA log position, expected %R but got %L") ;
+  Check.(
+    (log_position log_a2 = "0x1")
+      string
+      ~error_msg:"Wrong second LoggerA log position, expected %R but got %L") ;
+  Check.(
+    (log_position log_b = "0x0")
+      string
+      ~error_msg:"Wrong LoggerB log position, expected %R but got %L") ;
   unit
 
 let test_trace_transaction_call_trace_certain_depth =
