@@ -299,7 +299,7 @@ impl Registry for MockRegistry {
         alias_info: &AliasInfo,
     ) -> Result<String, TezosXRuntimeError> {
         if self.injective_aliases {
-            Ok(String::from_utf8_lossy(&alias_info.native_address).into_owned())
+            Ok(alias_info.native_address.clone())
         } else {
             Ok(self.generated_alias.clone())
         }
@@ -373,7 +373,7 @@ pub struct StubRegistry {
     pub destination_classification: Option<Classification>,
     pub read_count: Cell<u32>,
     pub expected_derivation_runtime: Option<RuntimeId>,
-    pub expected_native_address: Option<Vec<u8>>,
+    pub expected_native_address: Option<String>,
 }
 
 impl StubRegistry {
@@ -406,7 +406,7 @@ impl StubRegistry {
         }
     }
 
-    pub fn expecting_native_address(mut self, expected: Vec<u8>) -> Self {
+    pub fn expecting_native_address(mut self, expected: String) -> Self {
         self.expected_native_address = Some(expected);
         self
     }
@@ -467,12 +467,10 @@ impl Registry for StubRegistry {
         }
         if let Some(expected) = self.expected_native_address.as_deref() {
             assert_eq!(
-                alias_info.native_address.as_slice(),
-                expected,
+                alias_info.native_address, expected,
                 "StubRegistry::compute_alias called with wrong native_address \
                  (got {:?}, expected {:?})",
-                String::from_utf8_lossy(&alias_info.native_address),
-                String::from_utf8_lossy(expected),
+                alias_info.native_address, expected,
             );
         }
         Ok(self.computed_alias.clone())

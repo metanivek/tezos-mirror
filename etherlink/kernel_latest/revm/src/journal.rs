@@ -821,9 +821,7 @@ impl<
                 })
                 .map_err(|e| e.into_with_remainder(remaining))?,
         };
-        let alias_info = match resolve_routing(origin, target_runtime)
-            .map_err(|e| CustomPrecompileError::Revert(e.to_string(), remaining))?
-        {
+        let alias_info = match resolve_routing(origin, target_runtime) {
             RoutingDecision::RoundTrip(target) => {
                 return Ok((
                     target,
@@ -839,8 +837,7 @@ impl<
                 native_address: canonicalize_native_address(
                     RuntimeId::Ethereum,
                     &source.to_string(),
-                )
-                .into_bytes(),
+                ),
             },
         };
         // Caps what alias generation may spend. `Gas` carries the unit, so
@@ -910,14 +907,11 @@ impl<
                 })
                 .map_err(|e| e.into_with_remainder(remaining))?,
         };
-        let native_bytes = match resolve_routing(origin, target_runtime)
-            .map_err(|e| CustomPrecompileError::Revert(e.to_string(), remaining))?
-        {
+        let native_address = match resolve_routing(origin, target_runtime) {
             RoutingDecision::RoundTrip(target) => return Ok(target),
             RoutingDecision::Transitive(info) => info.native_address,
             RoutingDecision::Native => {
                 canonicalize_native_address(RuntimeId::Ethereum, &source.to_string())
-                    .into_bytes()
             }
         };
         // Deterministic fallback: reproduce the alias that the target
@@ -927,7 +921,7 @@ impl<
             .registry
             .compute_alias(&AliasInfo {
                 runtime: target_runtime,
-                native_address: native_bytes,
+                native_address,
             })
             .map_err(|e| {
                 CustomPrecompileError::Revert(
@@ -1012,10 +1006,10 @@ mod tests {
     use tezos_smart_rollup_keyspace::KeySpace;
     use tezosx_interfaces::{AliasInfo, Origin};
 
-    fn alias_origin(runtime: RuntimeId, native: &[u8]) -> Origin {
+    fn alias_origin(runtime: RuntimeId, native: &str) -> Origin {
         Origin::Alias(AliasInfo {
             runtime,
-            native_address: native.to_vec(),
+            native_address: native.to_string(),
         })
     }
 
@@ -1052,11 +1046,11 @@ mod tests {
         write_origin(
             eth_accounts,
             &source,
-            alias_origin(RuntimeId::Tezos, b"tz1abcdef"),
+            alias_origin(RuntimeId::Tezos, "tz1abcdef"),
         );
 
         let origin = read_origin(eth_accounts, &source);
-        match resolve_routing(origin, RuntimeId::Tezos).unwrap() {
+        match resolve_routing(origin, RuntimeId::Tezos) {
             RoutingDecision::RoundTrip(target) => assert_eq!(target, "tz1abcdef"),
             other => panic!(
                 "expected RoundTrip, got {:?}",
@@ -1074,7 +1068,7 @@ mod tests {
 
         let origin = read_origin(rk.eth_accounts(), &source);
         assert!(matches!(
-            resolve_routing(origin, RuntimeId::Tezos).unwrap(),
+            resolve_routing(origin, RuntimeId::Tezos),
             RoutingDecision::Native,
         ));
     }
@@ -1086,7 +1080,7 @@ mod tests {
 
         let origin = read_origin(rk.eth_accounts(), &source);
         assert!(matches!(
-            resolve_routing(origin, RuntimeId::Tezos).unwrap(),
+            resolve_routing(origin, RuntimeId::Tezos),
             RoutingDecision::Native,
         ));
     }
@@ -1101,14 +1095,14 @@ mod tests {
         write_origin(
             eth_accounts,
             &source,
-            alias_origin(RuntimeId::Tezos, b"tz1abcdef"),
+            alias_origin(RuntimeId::Tezos, "tz1abcdef"),
         );
 
         let origin = read_origin(eth_accounts, &source);
-        match resolve_routing(origin, RuntimeId::Ethereum).unwrap() {
+        match resolve_routing(origin, RuntimeId::Ethereum) {
             RoutingDecision::Transitive(info) => {
                 assert_eq!(info.runtime, RuntimeId::Tezos);
-                assert_eq!(info.native_address, b"tz1abcdef".to_vec());
+                assert_eq!(info.native_address, "tz1abcdef");
             }
             other => panic!(
                 "expected Transitive, got {:?}",

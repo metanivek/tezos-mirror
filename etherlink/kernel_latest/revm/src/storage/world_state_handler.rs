@@ -745,7 +745,7 @@ mod test {
         let info = AccountInfo {
             origin: AccountOrigin::Alias(AliasInfo {
                 runtime: RuntimeId::Ethereum,
-                native_address: b"0xffffffffffffffffffffffffffffffffffffffff".to_vec(),
+                native_address: "0xffffffffffffffffffffffffffffffffffffffff".to_string(),
             }),
             ..AccountInfo::default()
         };
@@ -757,7 +757,7 @@ mod test {
         let info = AccountInfo {
             origin: AccountOrigin::Alias(AliasInfo {
                 runtime: RuntimeId::Ethereum,
-                native_address: vec![0x61; AccountInfo::MAX_RLP_SIZE],
+                native_address: "a".repeat(AccountInfo::MAX_RLP_SIZE),
             }),
             ..AccountInfo::default()
         };
@@ -775,7 +775,7 @@ mod test {
             AccountOrigin::Native,
             AccountOrigin::Alias(AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1abcdef".to_vec(),
+                native_address: "tz1abcdef".to_string(),
             }),
         ] {
             let info = AccountInfo {
@@ -871,7 +871,7 @@ mod test {
             AccountOrigin::Native,
             AccountOrigin::Alias(AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1abcdef".to_vec(),
+                native_address: "tz1abcdef".to_string(),
             }),
             AccountOrigin::Unclassified,
         ]
@@ -921,7 +921,7 @@ mod test {
             AccountOrigin::Native,
             AccountOrigin::Alias(AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1abcdef".to_vec(),
+                native_address: "tz1abcdef".to_string(),
             }),
         ] {
             account

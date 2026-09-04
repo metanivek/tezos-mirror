@@ -128,8 +128,7 @@ pub fn fake_top_level_call_from_tezos_operation(
         native_address: canonicalize_native_address(
             RuntimeId::Tezos,
             &source.to_b58check(),
-        )
-        .into_bytes(),
+        ),
     });
     let caller = match alias.map(|alias| Address::from_str(&alias)) {
         Ok(Ok(caller)) => caller,

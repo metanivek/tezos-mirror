@@ -629,7 +629,6 @@ impl RuntimeInterface for EthereumRuntime {
         journal: &mut TezosXJournal,
         alias: &str,
         alias_info: AliasInfo,
-        native_address: &str,
         native_public_key: Option<&[u8]>,
         context: CrossRuntimeContext,
         gas_remaining: Gas,
@@ -645,10 +644,11 @@ impl RuntimeInterface for EthereumRuntime {
         // Stage the alias, then run init.
         // The staged alias reverts with its EVM frame and flushes only at
         // commit, so a failed parent leaves no durable state.
+        let native_address = alias_info.native_address.clone();
         journal
             .evm
             .layered_state
-            .create_alias(alias, Origin::Alias(alias_info.clone()));
+            .create_alias(alias, Origin::Alias(alias_info));
 
         // Everything below the trait boundary meters in EVM gas.
         let remaining_after = self.materialize_alias(
@@ -656,7 +656,7 @@ impl RuntimeInterface for EthereumRuntime {
             rk,
             journal,
             alias,
-            native_address,
+            &native_address,
             native_public_key,
             &context,
             gas_remaining.as_runtime(RuntimeId::Ethereum),
@@ -2178,10 +2178,8 @@ mod tests {
         // For an EVM address with no /origin record, resolve_routing returns
         // RoutingDecision::Native → AliasInfo { runtime: Ethereum,
         // native_address: canonicalize(Ethereum, addr.to_string()) }.
-        // canonicalize lowercases the address, so the bytes are "0x11...11".
-        let source_native_addr =
-            String::from_utf8(alias_calls[1].0.native_address.clone())
-                .expect("native_address must be valid UTF-8");
+        // canonicalize lowercases the address, so this is "0x11...11".
+        let source_native_addr = alias_calls[1].0.native_address.clone();
         let expected_originator_hex =
             format!("0x{}", alloy_primitives::hex::encode(originator.as_slice()));
         assert_eq!(
@@ -2655,7 +2653,7 @@ mod tests {
 
             let alias_info = AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1ABC".to_vec(),
+                native_address: "tz1ABC".to_string(),
             };
             let mut account = StorageAccount::from_address(&addr).unwrap();
             account
@@ -2741,12 +2739,8 @@ mod tests {
         fn alias_info() -> AliasInfo {
             AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1RjtZUVeLhADFHDL8UwDZA6vjWWhojpu5w".to_vec(),
+                native_address: "tz1RjtZUVeLhADFHDL8UwDZA6vjWWhojpu5w".to_string(),
             }
-        }
-
-        fn native_address() -> &'static str {
-            "tz1RjtZUVeLhADFHDL8UwDZA6vjWWhojpu5w"
         }
 
         fn context() -> CrossRuntimeContext {
@@ -2794,7 +2788,6 @@ mod tests {
                 &mut journal,
                 &alias.to_string(),
                 info.clone(),
-                native_address(),
                 Some(pubkey.as_slice()),
                 context(),
                 Gas::ZERO,
@@ -2846,7 +2839,6 @@ mod tests {
                 &mut journal,
                 &alias.to_string(),
                 info.clone(),
-                native_address(),
                 Some(pubkey.as_slice()),
                 context(),
                 Gas::ZERO,

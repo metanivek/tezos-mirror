@@ -48,23 +48,13 @@ impl Registry for RegistryImpl {
         KS: SafeKeyspace,
         Host: KeyspaceHost<KS>,
     {
-        // The native address is stored in `alias_info` as the UTF-8
-        // bytes of the canonical address string. Decode once for the
-        // forwarder storage payload below; the hash and the
-        // classification record both work on the bytes directly.
-        let native_bytes = alias_info.native_address.clone();
-        let native_address = std::str::from_utf8(&native_bytes).map_err(|e| {
-            tezosx_interfaces::TezosXRuntimeError::ConversionError(format!(
-                "alias_info.native_address is not valid UTF-8: {e}"
-            ))
-        })?;
         // The alias lives in `target_runtime`, so it is that runtime's
         // derivation that names it. `alias_info.runtime` is the *source*
-        // runtime of `native_address` — dispatching on it would derive the
-        // alias in the wrong address format.
+        // runtime of the native address — dispatching on it would derive
+        // the alias in the wrong address format.
         let alias = self.compute_alias(&tezosx_interfaces::AliasInfo {
             runtime: target_runtime,
-            native_address: native_bytes.clone(),
+            native_address: alias_info.native_address.clone(),
         })?;
         let result = if !self.alias_exists(rk, journal, target_runtime, &alias)? {
             match target_runtime {
@@ -74,7 +64,6 @@ impl Registry for RegistryImpl {
                     journal,
                     &alias,
                     alias_info,
-                    native_address,
                     native_public_key,
                     context,
                     gas_remaining,
@@ -85,7 +74,6 @@ impl Registry for RegistryImpl {
                     journal,
                     &alias,
                     alias_info,
-                    native_address,
                     native_public_key,
                     context,
                     gas_remaining,
@@ -123,12 +111,12 @@ impl Registry for RegistryImpl {
         alias_info: &tezosx_interfaces::AliasInfo,
     ) -> Result<String, tezosx_interfaces::TezosXRuntimeError> {
         match alias_info.runtime {
-            tezosx_interfaces::RuntimeId::Tezos => {
-                self.tezos.compute_alias(&alias_info.native_address)
-            }
-            tezosx_interfaces::RuntimeId::Ethereum => {
-                self.ethereum.compute_alias(&alias_info.native_address)
-            }
+            tezosx_interfaces::RuntimeId::Tezos => self
+                .tezos
+                .compute_alias(alias_info.native_address.as_bytes()),
+            tezosx_interfaces::RuntimeId::Ethereum => self
+                .ethereum
+                .compute_alias(alias_info.native_address.as_bytes()),
         }
     }
 
@@ -368,7 +356,7 @@ mod tests {
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let native_address = "0x3333333333333333333333333333333333333333";
         let alias_info = tezosx_interfaces::AliasInfo {
-            native_address: native_address.as_bytes().to_vec(),
+            native_address: native_address.to_string(),
             runtime: RuntimeId::Ethereum,
         };
         let first = registry
@@ -435,7 +423,7 @@ mod tests {
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let native_address = "0x3333333333333333333333333333333333333333";
         let alias_info = tezosx_interfaces::AliasInfo {
-            native_address: native_address.as_bytes().to_vec(),
+            native_address: native_address.to_string(),
             runtime: RuntimeId::Ethereum,
         };
         let budget = Gas::new(5_000_000, RuntimeId::Tezos);

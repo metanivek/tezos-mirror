@@ -161,6 +161,8 @@ pub trait Registry {
 pub trait RuntimeInterface {
     type Journal;
 
+    /// Materialize `alias` — already derived by the registry and named
+    /// in this runtime — for the account `alias_info` describes.
     #[allow(clippy::too_many_arguments)]
     fn create_alias<Host, KS>(
         &self,
@@ -169,7 +171,6 @@ pub trait RuntimeInterface {
         journal: &mut Self::Journal,
         alias: &str,
         alias_info: AliasInfo,
-        native_address: &str,
         native_public_key: Option<&[u8]>,
         context: CrossRuntimeContext,
         gas_remaining: Gas,
@@ -280,7 +281,7 @@ pub fn translate_original_source<R: Registry>(
     } else {
         registry.compute_alias(&AliasInfo {
             runtime: target,
-            native_address: source.original_address().as_bytes().to_vec(),
+            native_address: source.original_address().to_string(),
         })
     }
 }

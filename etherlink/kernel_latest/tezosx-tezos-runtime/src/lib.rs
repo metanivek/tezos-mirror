@@ -1110,7 +1110,6 @@ impl RuntimeInterface for TezosRuntime {
         journal: &mut TezosXJournal,
         alias: &str,
         alias_info: AliasInfo,
-        native_address: &str,
         _native_public_key: Option<&[u8]>,
         _context: CrossRuntimeContext,
         gas_remaining: TezosXGas,
@@ -1172,14 +1171,14 @@ impl RuntimeInterface for TezosRuntime {
         // actual budget; OOG inside the encode means insufficient
         // budget, not a synthetic high-cap failure.
         let mut encoding_gas = Gas::new(u32::try_from(remaining).unwrap_or(u32::MAX));
-        let storage =
-            alias_forwarder::forwarder_storage(native_address, &mut encoding_gas)
-                .map_err(|OutOfGas| TezosXRuntimeError::OutOfGas)?
-                .map_err(|e| {
-                    TezosXRuntimeError::Custom(format!(
-                        "Failed to encode forwarder storage: {e}"
-                    ))
-                })?;
+        let storage = alias_forwarder::forwarder_storage(
+            &alias_info.native_address,
+            &mut encoding_gas,
+        )
+        .map_err(|OutOfGas| TezosXRuntimeError::OutOfGas)?
+        .map_err(|e| {
+            TezosXRuntimeError::Custom(format!("Failed to encode forwarder storage: {e}"))
+        })?;
 
         // `forwarder_storage` returned `Ok`, so the counter cannot be
         // exhausted. Surface a clear error rather than silently
@@ -1779,7 +1778,7 @@ mod tests {
     fn evm_alias_info(addr: &str) -> AliasInfo {
         AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: addr.as_bytes().to_vec(),
+            native_address: addr.to_string(),
         }
     }
 
@@ -1823,7 +1822,6 @@ mod tests {
                 &mut journal,
                 &alias,
                 evm_alias_info(evm_address),
-                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),
@@ -1891,7 +1889,6 @@ mod tests {
                 &mut journal,
                 &alias,
                 evm_alias_info(evm_address),
-                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),
@@ -1924,7 +1921,6 @@ mod tests {
                 &mut journal,
                 &alias,
                 evm_alias_info(evm_address),
-                evm_address,
                 None,
                 test_context(),
                 TezosXGas::new(5_000_000, RuntimeId::Tezos),

@@ -206,7 +206,7 @@ mod tests {
                 &mut host,
                 &Origin::Alias(AliasInfo {
                     runtime: RuntimeId::Ethereum,
-                    native_address: b"0xabc".to_vec(),
+                    native_address: "0xabc".to_string(),
                 }),
             )
             .unwrap();
