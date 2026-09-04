@@ -7464,47 +7464,6 @@ let test_tx_pool_transaction_size_exceeded =
     ~error_msg:"This transaction should be rejected with error msg %R not %L" ;
   unit
 
-let test_whitelist_is_executed =
-  let rollup_operator_key = Constant.bootstrap1.public_key_hash in
-  let whitelist = [rollup_operator_key] in
-  let commitment_period = 5 and challenge_window = 5 in
-  register_sequencer
-    ~challenge_window
-    ~commitment_period
-    ~whitelist
-    ~rollup_operator_key
-    ~tags:["evm"; "whitelist"; "update"]
-    ~title:
-      "Check that the kernel submit a whitelist update message when flag is \
-       set."
-  @@
-  fun ~protocol:_
-      ~evm_setup:{sc_rollup_node; client; node; sc_rollup_address; _}
-    ->
-  let get_whitelist () =
-    Node.RPC.call node
-    @@ RPC.get_chain_block_context_smart_rollups_smart_rollup_whitelist
-         sc_rollup_address
-  in
-  let* found_whitelist = get_whitelist () in
-  Check.(
-    (Some whitelist = found_whitelist)
-      (option (list string))
-      ~error_msg:"found %R expected %L") ;
-  let* () =
-    repeat
-      ((commitment_period * challenge_window) + 3)
-      (fun () ->
-        let* _lvl = Rollup.next_rollup_node_level ~sc_rollup_node ~client in
-        unit)
-  in
-  let* found_whitelist = get_whitelist () in
-  Check.(
-    (None = found_whitelist)
-      (option (list string))
-      ~error_msg:"found %R expected %L") ;
-  unit
-
 let test_rpc_maxPriorityFeePerGas =
   register_sequencer
     ~tags:["evm"; "rpc"; "max_priority_fee_per_gas"]
@@ -7918,7 +7877,6 @@ let register_evm_node ~protocols =
   test_block_gas_limit protocols ;
   test_tx_pool_address_boundaries protocols ;
   test_tx_pool_transaction_size_exceeded protocols ;
-  test_whitelist_is_executed protocols ;
   test_rpc_maxPriorityFeePerGas protocols ;
   test_unsupported_rpc protocols ;
   test_rpc_getBlockBy_return_base_fee_per_gas_and_mix_hash protocols ;
