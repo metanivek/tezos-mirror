@@ -204,7 +204,7 @@ let job_build_static_linux_released_binaries =
       [
         ("ARCH", arch_string);
         ("EXECUTABLE_FILES", "script-inputs/octez-released-executables");
-        ("DUNE_BUILD_JOBS", "-j 10");
+        ("DUNE_BUILD_JOBS", match arch with Amd64 -> "-j 12" | Arm64 -> "-j 8");
       ]
     ~artifacts:
       (Gitlab_ci.Util.artifacts
