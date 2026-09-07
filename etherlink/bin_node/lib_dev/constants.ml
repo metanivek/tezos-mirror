@@ -51,6 +51,8 @@ type kernel =
   | Previewnet04
   | Previewnet05
   | Previewnet06
+  | Ganesha
+  | GaneshaR1
   | Latest
 
 let kernel_from_string = function
@@ -73,9 +75,19 @@ let kernel_from_string = function
   | "previewnet-0.4" -> Some Previewnet04
   | "previewnet-0.5" -> Some Previewnet05
   | "previewnet-0.6" -> Some Previewnet06
+  | "ganesha" -> Some Ganesha
+  | "ganesha-r1" -> Some GaneshaR1
   | "latest" -> Some Latest
   | _ -> None
 
+(* Release order across both trains, mainnet and previewnet. This is not
+   decoration: [kernel_config] gates the installer layout on
+   [kernel_is_newer ~than:Previewnet02/04/05], so an ordinal decides whether
+   a kernel gets the legacy /evm governance paths and the pre-isolation
+   eth_accounts path, or the /base + world-state ones. The Ganesha kernels
+   ship storage version 65 and need the latter, hence their place after the
+   Previewnet block; moving them up among the Farfadets would silently emit
+   the wrong installer config, with no error. *)
 let kernel_to_ordinal = function
   | Mainnet_beta -> 0
   | Mainnet_gamma -> 1
@@ -96,6 +108,8 @@ let kernel_to_ordinal = function
   | Previewnet04 -> 16
   | Previewnet05 -> 17
   | Previewnet06 -> 18
+  | Ganesha -> 19
+  | GaneshaR1 -> 20
   | Latest -> Int.max_int
 
 let compare_kernel a b = Int.compare (kernel_to_ordinal a) (kernel_to_ordinal b)
@@ -165,6 +179,14 @@ let root_hash_from_released_kernel = function
       Some
         (`Hex
            "0083d8142e9c5f2a35ead6eb31d6344f3803f90eacb03ccfb6c482df353f85908a")
+  | Ganesha ->
+      Some
+        (`Hex
+           "008c903318dfc0016de771f981069498f7774f3c35ffcc3f2dce63f5a3b6d03df6")
+  | GaneshaR1 ->
+      Some
+        (`Hex
+           "00db5a8b279b9915f7ffef420347b5d9667ac4e73a9c766b7ef71513f748f52c67")
   | Previewnet02 | Previewnet04 | Previewnet05 | Previewnet06 | Latest -> None
 
 let michelson_runtime_node_version ~smart_rollup_address ~l2_chain_id =
