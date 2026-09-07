@@ -3810,7 +3810,7 @@ mod tests {
         let account = context::originated_from_kt1(&kt1).unwrap();
         let origin = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: b"0xabc".to_vec(),
+            native_address: "0xabc".to_string(),
         });
         let mut buf = vec![];
         origin.bin_write(&mut buf).unwrap();

@@ -842,8 +842,8 @@ mod test {
         use tezos_smart_rollup_keyspace::KeySpace;
         use tezosx_ethereum_runtime::EthereumRuntime;
         use tezosx_interfaces::{
-            AliasInfo, CrossRuntimeContext, Registry as RegistryTrait, RuntimeId,
-            RuntimeInterface, TezosXRuntimeError,
+            AliasInfo, AliasResolution, CrossRuntimeContext, Registry as RegistryTrait,
+            RuntimeId, RuntimeInterface, TezosXRuntimeError,
         };
         use tezosx_journal::TezosXJournal;
 
@@ -921,39 +921,74 @@ mod test {
                 Host: KeyspaceHost<KS>,
                 KS: SafeKeyspace,
             {
+                // The alias lives in `target_runtime`, so it is that
+                // runtime's derivation that names it. `alias_info.runtime`
+                // is the *source* runtime of the native address.
+                let alias = self.compute_alias(&AliasInfo {
+                    runtime: target_runtime,
+                    native_address: alias_info.native_address.clone(),
+                })?;
+                let result = if !self.alias_exists(rk, journal, target_runtime, &alias)? {
+                    match target_runtime {
+                        tezosx_interfaces::RuntimeId::Tezos => {
+                            self.mock_tezos.create_alias(
+                                self,
+                                rk,
+                                journal,
+                                &alias,
+                                alias_info,
+                                native_public_key,
+                                context,
+                                gas_remaining,
+                            )
+                        }
+                        tezosx_interfaces::RuntimeId::Ethereum => {
+                            self.ethereum.create_alias(
+                                self,
+                                rk,
+                                journal,
+                                &alias,
+                                alias_info,
+                                native_public_key,
+                                context,
+                                gas_remaining,
+                            )
+                        }
+                    }
+                } else {
+                    Ok(AliasResolution::build(gas_remaining))
+                };
+                result.map(|resolution| (alias, resolution))
+            }
+
+            fn alias_exists<Host, KS>(
+                &self,
+                rk: &mut RuntimeKeyspaces<Host, KS>,
+                journal: &mut Self::Journal,
+                target_runtime: RuntimeId,
+                alias: &str,
+            ) -> Result<bool, TezosXRuntimeError>
+            where
+                Host: KeyspaceHost<KS>,
+                KS: SafeKeyspace,
+            {
                 match target_runtime {
-                    RuntimeId::Tezos => self.mock_tezos.ensure_alias(
-                        self,
-                        rk,
-                        journal,
-                        alias_info,
-                        native_public_key,
-                        context,
-                        gas_remaining,
-                    ),
-                    RuntimeId::Ethereum => self.ethereum.ensure_alias(
-                        self,
-                        rk,
-                        journal,
-                        alias_info,
-                        native_public_key,
-                        context,
-                        gas_remaining,
-                    ),
+                    RuntimeId::Tezos => self.mock_tezos.alias_exists(rk, journal, alias),
+                    RuntimeId::Ethereum => self.ethereum.alias_exists(rk, journal, alias),
                 }
             }
 
             fn compute_alias(
                 &self,
-                alias_info: AliasInfo,
+                alias_info: &AliasInfo,
             ) -> Result<String, TezosXRuntimeError> {
                 match alias_info.runtime {
-                    RuntimeId::Tezos => {
-                        self.mock_tezos.compute_alias(&alias_info.native_address)
-                    }
-                    RuntimeId::Ethereum => {
-                        self.ethereum.compute_alias(&alias_info.native_address)
-                    }
+                    RuntimeId::Tezos => self
+                        .mock_tezos
+                        .compute_alias(alias_info.native_address.as_bytes()),
+                    RuntimeId::Ethereum => self
+                        .ethereum
+                        .compute_alias(alias_info.native_address.as_bytes()),
                 }
             }
 
@@ -1060,28 +1095,34 @@ mod test {
         impl RuntimeInterface for MockTezosRuntime {
             type Journal = TezosXJournal;
 
-            fn ensure_alias<Host, KS>(
+            fn create_alias<Host, KS>(
                 &self,
                 _registry: &impl RegistryTrait,
                 _rk: &mut RuntimeKeyspaces<Host, KS>,
                 _journal: &mut TezosXJournal,
-                alias_info: AliasInfo,
+                _alias: &str,
+                _alias_info: AliasInfo,
                 _native_public_key: Option<&[u8]>,
                 _context: CrossRuntimeContext,
                 gas_remaining: tezosx_interfaces::Gas,
-            ) -> Result<(String, tezosx_interfaces::AliasResolution), TezosXRuntimeError>
+            ) -> Result<tezosx_interfaces::AliasResolution, TezosXRuntimeError>
             where
                 Host: StorageV1,
             {
-                // Deterministic mock: compute a KT1 from native_address bytes
-                use tezos_crypto_rs::{blake2b, hash::ContractKt1Hash};
-                let kt1 = ContractKt1Hash::from(blake2b::digest_160(
-                    &alias_info.native_address,
-                ));
-                Ok((
-                    kt1.to_base58_check(),
-                    tezosx_interfaces::AliasResolution::build(gas_remaining),
-                ))
+                Ok(tezosx_interfaces::AliasResolution::build(gas_remaining))
+            }
+
+            fn alias_exists<Host, KS>(
+                &self,
+                _rk: &mut RuntimeKeyspaces<Host, KS>,
+                _journal: &mut TezosXJournal,
+                _alias: &str,
+            ) -> Result<bool, TezosXRuntimeError>
+            where
+                Host: StorageV1,
+                KS: SafeKeyspace,
+            {
+                Ok(false)
             }
 
             fn compute_alias(
@@ -1423,7 +1464,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Ethereum,
-                    native_address: destination.to_string().into_bytes(),
+                    native_address: destination.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Tezos,
@@ -4203,9 +4244,9 @@ mod test {
 
         fn tezos_alias_of(registry: &Registry, addr: Address) -> String {
             registry
-                .compute_alias(AliasInfo {
+                .compute_alias(&AliasInfo {
                     runtime: RuntimeId::Tezos,
-                    native_address: addr.to_string().to_lowercase().into_bytes(),
+                    native_address: addr.to_string().to_lowercase(),
                 })
                 .unwrap()
         }
@@ -5184,7 +5225,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Tezos,
-                    native_address: native_address.as_bytes().to_vec(),
+                    native_address: native_address.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Ethereum,
@@ -5271,7 +5312,7 @@ mod test {
             &mut journal,
             AliasInfo {
                 runtime: tezosx_interfaces::RuntimeId::Tezos,
-                native_address: native_address.as_bytes().to_vec(),
+                native_address: native_address.to_string(),
             },
             None,
             tezosx_interfaces::RuntimeId::Ethereum,
@@ -5331,7 +5372,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Tezos,
-                    native_address: native_address.as_bytes().to_vec(),
+                    native_address: native_address.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Ethereum,
@@ -5372,8 +5413,7 @@ mod test {
             .origin;
         match origin {
             AccountOrigin::Alias(info) => assert_eq!(
-                info.native_address,
-                native_address.as_bytes().to_vec(),
+                info.native_address, native_address,
                 "classification must record the native address"
             ),
             other => {
@@ -5458,7 +5498,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Tezos,
-                    native_address: native_address.as_bytes().to_vec(),
+                    native_address: native_address.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Ethereum,
@@ -5538,7 +5578,7 @@ mod test {
                 AccountInfo {
                     origin: AccountOrigin::Alias(AliasInfo {
                         runtime: RuntimeId::Tezos,
-                        native_address: b"tz1durable".to_vec(),
+                        native_address: "tz1durable".to_string(),
                     }),
                     ..AccountInfo::default()
                 },
@@ -5551,7 +5591,7 @@ mod test {
             source,
             Origin::Alias(AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1staged".to_vec(),
+                native_address: "tz1staged".to_string(),
             }),
         );
 
@@ -5746,7 +5786,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Tezos,
-                    native_address: native_address.as_bytes().to_vec(),
+                    native_address: native_address.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Ethereum,
@@ -5859,7 +5899,7 @@ mod test {
                 &mut journal,
                 AliasInfo {
                     runtime: tezosx_interfaces::RuntimeId::Tezos,
-                    native_address: native_address.as_bytes().to_vec(),
+                    native_address: native_address.to_string(),
                 },
                 None,
                 tezosx_interfaces::RuntimeId::Ethereum,

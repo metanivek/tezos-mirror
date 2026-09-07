@@ -1727,7 +1727,7 @@ mod test {
         use tezosx_interfaces::{AliasInfo, RuntimeId};
         let origin = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: b"0xabc".to_vec(),
+            native_address: "0xabc".to_string(),
         });
         account.set_origin(host, &origin).unwrap();
     }
@@ -1753,7 +1753,7 @@ mod test {
         // The alias variant round-trips.
         let alias = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: b"tz1...".to_vec(),
+            native_address: "tz1...".to_string(),
         });
         account.set_origin(&mut host, &alias).unwrap();
         assert_eq!(account.origin(&host).unwrap(), Some(alias));

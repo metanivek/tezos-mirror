@@ -28,6 +28,7 @@ use tezos_tezlink::operation_result::{
     ApplyOperationError, ContentResult, InternalOperationSum, TransferError,
 };
 use tezosx_interfaces::{
+    canonicalize_native_address,
     headers::{format_tez_from_mutez, parse_u64_opt},
     resolve_routing, translate_original_source, AliasInfo, Classification,
     CrossRuntimeContext, Gas, Milligas, Registry, RoutingDecision, RuntimeId,
@@ -1113,7 +1114,7 @@ where
             RoutingDecision::Transitive(info) => info,
             RoutingDecision::Native => AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: sender.to_base58_check().into_bytes(),
+                native_address: sender.to_base58_check(),
             },
         };
         let sender_runtime = alias_info.runtime;
@@ -1176,7 +1177,7 @@ where
                 RoutingDecision::Transitive(info) => info,
                 RoutingDecision::Native => AliasInfo {
                     runtime: RuntimeId::Tezos,
-                    native_address: source.to_base58_check().into_bytes(),
+                    native_address: source.to_base58_check(),
                 },
             };
             let source_runtime = alias_info.runtime;
@@ -1251,13 +1252,11 @@ fn tezosx_resolve_source_alias_readonly(
         return Ok((source.to_base58_check(), RuntimeId::Tezos));
     }
 
-    let (native_bytes, source_runtime) =
+    let (native_address, source_runtime) =
         match read_and_resolve_routing(ctx, source, target_runtime)? {
             RoutingDecision::RoundTrip(target) => return Ok((target, target_runtime)),
             RoutingDecision::Transitive(info) => (info.native_address, info.runtime),
-            RoutingDecision::Native => {
-                (source.to_base58_check().into_bytes(), RuntimeId::Tezos)
-            }
+            RoutingDecision::Native => (source.to_base58_check(), RuntimeId::Tezos),
         };
     // Deterministic fallback: reproduce the alias that the target
     // runtime's `ensure_alias` would compute (and persist on the
@@ -1269,9 +1268,9 @@ fn tezosx_resolve_source_alias_readonly(
     // If either formula changes, this read-only path must change
     // too.
     let alias = registry
-        .compute_alias(AliasInfo {
+        .compute_alias(&AliasInfo {
             runtime: target_runtime,
-            native_address: native_bytes,
+            native_address,
         })
         .map_err(|e| {
             TransferError::GatewayError(format!("Alias computation failed: {e}"))
@@ -1286,8 +1285,7 @@ fn compute_selector(method_signature: &str) -> [u8; 4] {
 }
 
 /// Read the source's classification record and delegate to the shared
-/// `resolve_routing` helper, mapping its error variants into the
-/// gateway envelope.
+/// `resolve_routing` helper. Only the durable read can fail.
 fn read_and_resolve_routing(
     ctx: &impl HasOriginLookup,
     address: &AddressHash,
@@ -1296,8 +1294,7 @@ fn read_and_resolve_routing(
     let origin = ctx
         .read_origin_for_address(address)
         .map_err(|e| TransferError::GatewayError(format!("read origin failed: {e}")))?;
-    resolve_routing(origin, target_runtime)
-        .map_err(|e| TransferError::GatewayError(e.to_string()))
+    Ok(resolve_routing(origin, target_runtime))
 }
 
 /// Build a `CrossRuntimeContext` from the current execution context.
@@ -1492,7 +1489,7 @@ fn derive_alias_for_view<'a, Host, KS, R>(
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     source_runtime: RuntimeId,
     target_runtime: RuntimeId,
-    basis: Vec<u8>,
+    basis: String,
 ) -> Result<TypedValue<'a>, mir::interpreter::InterpretError<'a>>
 where
     Host: StorageV1,
@@ -1503,7 +1500,7 @@ where
         .cast_and_consume_milligas(DERIVE_ALIAS_MILLIGAS)
         .map_err(|_| mir::interpreter::InterpretError::OutOfGas)?;
     let derived = registry
-        .compute_alias(tezosx_interfaces::AliasInfo {
+        .compute_alias(&tezosx_interfaces::AliasInfo {
             runtime: target_runtime,
             native_address: basis.clone(),
         })
@@ -1627,25 +1624,17 @@ where
         }
         Classification::Alias(info) if info.runtime == target_runtime => {
             // Direct recorded lookup — target address is already in the record.
-            // Strict UTF-8 per `AliasInfo` invariant; failure is data corruption.
-            let native_str = info.into_native_address_string().map_err(|_| {
-                mir::interpreter::EnshrinedViewDispatchError::AliasResolution
-            })?;
             TypedValue::new_option(Some(TypedValue::new_pair(
                 TypedValue::Nat(RESOLUTION_RECORDED_NAT.into()),
-                TypedValue::String(native_str),
+                TypedValue::String(info.native_address),
             )))
         }
         Classification::Native => {
-            let basis: Vec<u8> = if source_runtime == RuntimeId::Ethereum {
-                // Canonicalize EVM hex to lowercase so alias derivation is
-                // casing-insensitive; mirrors the EVM peer in
-                // `revm/src/precompiles/runtime_gateway.rs` and the
-                // journal's native-source path.
-                addr_str.to_lowercase().into_bytes()
-            } else {
-                addr_str.as_bytes().to_vec()
-            };
+            // Canonicalize so alias derivation is casing-insensitive on the
+            // EVM side; the same helper backs the EVM peer in
+            // `revm/src/precompiles/runtime_gateway.rs` and the journal's
+            // native-source path.
+            let basis = canonicalize_native_address(source_runtime, addr_str);
             derive_alias_for_view(
                 rk,
                 registry,
@@ -1733,10 +1722,7 @@ fn encode_origin_of<'a>(
         Classification::Alias(info) => {
             // Alias → Right (Right (Pair (<home_runtime as nat>, <native_str>)))
             let home_nat = TypedValue::Nat((u8::from(info.runtime) as u64).into());
-            let native_str =
-                TypedValue::String(info.into_native_address_string().map_err(|_| {
-                    mir::interpreter::EnshrinedViewDispatchError::AliasResolution
-                })?);
+            let native_str = TypedValue::String(info.native_address);
             TypedValue::new_or(Or::Right(TypedValue::new_or(Or::Right(
                 TypedValue::new_pair(home_nat, native_str),
             ))))
@@ -2379,7 +2365,7 @@ pub(crate) mod tests {
             .ensure_alias_calls
             .borrow()
             .iter()
-            .map(|(info, _)| String::from_utf8(info.native_address.clone()).unwrap())
+            .map(|(info, _)| info.native_address.clone())
             .collect();
         assert!(
             native_addrs.contains(&expected_source),
@@ -4958,10 +4944,10 @@ pub(crate) mod tests {
         }
     }
 
-    fn alias_origin(runtime: RuntimeId, native_address: &[u8]) -> Origin {
+    fn alias_origin(runtime: RuntimeId, native_address: &str) -> Origin {
         Origin::Alias(AliasInfo {
             runtime,
-            native_address: native_address.to_vec(),
+            native_address: native_address.to_string(),
         })
     }
 
@@ -4973,7 +4959,7 @@ pub(crate) mod tests {
     fn routing_returns_round_trip_for_matching_alias() {
         let stub = OriginLookupStub(Some(alias_origin(
             RuntimeId::Ethereum,
-            b"0xabcdef0123456789abcdef0123456789abcdef01",
+            "0xabcdef0123456789abcdef0123456789abcdef01",
         )));
         match read_and_resolve_routing(&stub, &some_address(), RuntimeId::Ethereum)
             .unwrap()
@@ -5013,13 +4999,13 @@ pub(crate) mod tests {
         // Path-independence: the recorded info is the basis for
         // derivation toward a third target. Unreachable in two
         // runtime mode.
-        let stub = OriginLookupStub(Some(alias_origin(RuntimeId::Tezos, b"tz1abcdef")));
+        let stub = OriginLookupStub(Some(alias_origin(RuntimeId::Tezos, "tz1abcdef")));
         match read_and_resolve_routing(&stub, &some_address(), RuntimeId::Ethereum)
             .unwrap()
         {
             RoutingDecision::Transitive(info) => {
                 assert_eq!(info.runtime, RuntimeId::Tezos);
-                assert_eq!(info.native_address, b"tz1abcdef".to_vec());
+                assert_eq!(info.native_address, "tz1abcdef");
             }
             other => panic!(
                 "expected Transitive, got {:?}",
@@ -5065,7 +5051,7 @@ pub(crate) mod tests {
         // rather than defaulting `X-Tezos-Source-Runtime` to Tezos.
         let stub = OriginLookupStub(Some(alias_origin(
             RuntimeId::Ethereum,
-            b"0xabcdef0123456789abcdef0123456789abcdef01",
+            "0xabcdef0123456789abcdef0123456789abcdef01",
         )));
         let registry = MockRegistry::new("unused");
         let (alias, runtime) = tezosx_resolve_source_alias_readonly(
@@ -5191,7 +5177,7 @@ pub(crate) mod tests {
         let evm_addr = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let alias_info = tezosx_interfaces::AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: evm_addr.as_bytes().to_vec(),
+            native_address: evm_addr.to_string(),
         };
         let registry =
             StubRegistry::with_classification(Classification::Alias(alias_info));
@@ -5278,7 +5264,7 @@ pub(crate) mod tests {
         let tezos_addr = "tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx";
         let alias_info = tezosx_interfaces::AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: tezos_addr.as_bytes().to_vec(),
+            native_address: tezos_addr.to_string(),
         };
         let registry =
             StubRegistry::with_classification(Classification::Alias(alias_info));
@@ -5379,7 +5365,7 @@ pub(crate) mod tests {
         let evm_addr = "0xcccccccccccccccccccccccccccccccccccccccc";
         let alias_info = tezosx_interfaces::AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: evm_addr.as_bytes().to_vec(),
+            native_address: evm_addr.to_string(),
         };
         let registry =
             StubRegistry::with_classification(Classification::Alias(alias_info));
@@ -5408,7 +5394,7 @@ pub(crate) mod tests {
         // Destination check returns an alias pointing back to source → Recorded.
         let dest_class = Classification::Alias(tezosx_interfaces::AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: tezos_addr.as_bytes().to_vec(),
+            native_address: tezos_addr.to_string(),
         });
         let registry = StubRegistry::with_alias_and_expected_runtime(
             Classification::Native,
@@ -5597,7 +5583,7 @@ pub(crate) mod tests {
             Some(Classification::Unknown),
             RuntimeId::Tezos,
         )
-        .expecting_native_address(lowercase.as_bytes().to_vec());
+        .expecting_native_address(lowercase.to_string());
         let mut gas = make_gas(10_000_000);
         let result = dispatch_resolve_address_get(
             &rk,

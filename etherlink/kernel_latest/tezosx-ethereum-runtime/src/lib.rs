@@ -15,8 +15,8 @@ use revm::primitives::KECCAK_EMPTY;
 use revm_etherlink::precompiles::constants::RUNTIME_GATEWAY_PRECOMPILE_ADDRESS;
 use revm_etherlink::{
     precompiles::constants::{
-        alias_forwarder_delegation_code_hash, ALIAS_FORWARDER_PRECOMPILE_ADDRESS,
-        ALIAS_FORWARDER_SOL_CONTRACT, TEZOSX_CALLER_ADDRESS,
+        ALIAS_FORWARDER_PRECOMPILE_ADDRESS, ALIAS_FORWARDER_SOL_CONTRACT,
+        TEZOSX_CALLER_ADDRESS,
     },
     run_transaction,
     storage::{
@@ -90,7 +90,7 @@ impl EthereumRuntime {
         native_public_key: Option<&[u8]>,
         context: &CrossRuntimeContext,
         gas_remaining: u64,
-    ) -> Result<(String, u64), TezosXRuntimeError>
+    ) -> Result<u64, TezosXRuntimeError>
     where
         KS: SafeKeyspace,
         Host: KeyspaceHost<KS>,
@@ -164,7 +164,7 @@ impl EthereumRuntime {
             // The classification was staged by the caller; the forwarder
             // storage lives in the EVM journal. Both flush at commit and
             // drop together on revert.
-            ExecutionResult::Success { .. } => Ok((alias.to_string(), remaining_after)),
+            ExecutionResult::Success { .. } => Ok(remaining_after),
             ExecutionResult::Revert { output, .. } => Err(TezosXRuntimeError::Custom(
                 format!("init_tezosx_alias reverted: {output:?}"),
             )),
@@ -622,45 +622,66 @@ where
 impl RuntimeInterface for EthereumRuntime {
     type Journal = TezosXJournal;
 
-    fn ensure_alias<Host, KS>(
+    fn create_alias<Host, KS>(
         &self,
         registry: &impl Registry<Journal = TezosXJournal>,
         rk: &mut RuntimeKeyspaces<Host, KS>,
         journal: &mut TezosXJournal,
+        alias: &str,
         alias_info: AliasInfo,
         native_public_key: Option<&[u8]>,
         context: CrossRuntimeContext,
         gas_remaining: Gas,
-    ) -> Result<(String, AliasResolution), TezosXRuntimeError>
+    ) -> Result<AliasResolution, TezosXRuntimeError>
     where
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
     {
-        // The native address is stored in `alias_info` as the UTF-8
-        // bytes of the canonical address string. Decode once for the
-        // EVM init call below; the hash and the classification record
-        // both work on the bytes directly.
-        let native_address =
-            std::str::from_utf8(&alias_info.native_address).map_err(|e| {
-                TezosXRuntimeError::ConversionError(format!(
-                    "alias_info.native_address is not valid UTF-8: {e}"
-                ))
-            })?;
+        let alias = Address::from_hex(alias).map_err(|e| {
+            TezosXRuntimeError::Custom(format!("Invalid alias address string: {e}"))
+        })?;
 
-        // Step 1: Compute the alias address deterministically from the native address
-        let mut hasher = Keccak256::new();
-        hasher.update(&alias_info.native_address);
-        let hash = hasher.finalize();
-        let alias = Address::from_slice(&hash[0..20]);
+        // Stage the alias, then run init.
+        // The staged alias reverts with its EVM frame and flushes only at
+        // commit, so a failed parent leaves no durable state.
+        let native_address = alias_info.native_address.clone();
+        journal
+            .evm
+            .layered_state
+            .create_alias(alias, Origin::Alias(alias_info));
 
-        // The delegation designator is the same constant for every alias;
-        // the shared helper keeps Branch 2 detection and the installed
-        // delegation in agreement.
-        let delegation_code_hash = alias_forwarder_delegation_code_hash();
+        // Everything below the trait boundary meters in EVM gas.
+        let remaining_after = self.materialize_alias(
+            registry,
+            rk,
+            journal,
+            alias,
+            &native_address,
+            native_public_key,
+            &context,
+            gas_remaining.as_runtime(RuntimeId::Ethereum),
+        )?;
+        Ok(AliasResolution::build(Gas::new(
+            remaining_after,
+            RuntimeId::Ethereum,
+        )))
+    }
 
+    fn alias_exists<Host, KS>(
+        &self,
+        rk: &mut RuntimeKeyspaces<Host, KS>,
+        journal: &mut TezosXJournal,
+        alias: &str,
+    ) -> Result<bool, TezosXRuntimeError>
+    where
+        Host: StorageV1,
+        KS: SafeKeyspace,
+    {
+        let alias = Address::from_hex(alias).map_err(|e| {
+            TezosXRuntimeError::Custom(format!("Invalid alias address string: {e}"))
+        })?;
         let alias_account = StorageAccount::from_address(&alias)?;
-
-        // Branch 1: already classified as alias, either staged earlier in
+        // already classified as alias, either staged earlier in
         // this transaction or persisted by a previous one. Returning early
         // preserves the gas budget and performs no writes.
         if journal
@@ -669,57 +690,16 @@ impl RuntimeInterface for EthereumRuntime {
             .pending_alias_origin(&alias)
             .is_some()
         {
-            return Ok((alias.to_string(), AliasResolution::build(gas_remaining)));
+            return Ok(true);
         }
-        // One info read serves both the classification and the
-        // Branch 2 forwarder detection (the code hash).
         let storage_info = alias_account.info(rk.eth_accounts_mut())?;
         match storage_info.origin {
-            AccountOrigin::Alias(_) => {
-                return Ok((alias.to_string(), AliasResolution::build(gas_remaining)));
-            }
-            AccountOrigin::Native => {
-                return Err(TezosXRuntimeError::Custom(format!(
-                    "ensure_alias: address {alias} is recorded as Native, refusing to overwrite"
-                )));
-            }
-            AccountOrigin::Unclassified => {}
+            AccountOrigin::Alias(_) => Ok(true),
+            AccountOrigin::Native => Err(TezosXRuntimeError::Custom(format!(
+                "alias_exists: address {alias} is recorded as Native"
+            ))),
+            AccountOrigin::Unclassified => Ok(false),
         }
-
-        // Branch 2: a forwarder is already deployed but the classification
-        // path is empty. Stage the classification only and skip the
-        // redeploy; the durable write is deferred to commit.
-        if storage_info.code_hash == delegation_code_hash {
-            journal
-                .evm
-                .layered_state
-                .create_alias(alias, Origin::Alias(alias_info));
-            return Ok((alias.to_string(), AliasResolution::build(gas_remaining)));
-        }
-
-        // Branch 3: full materialization. Stage the alias, then run init.
-        // The staged alias reverts with its EVM frame and flushes only at
-        // commit, so a failed parent leaves no durable state.
-        journal
-            .evm
-            .layered_state
-            .create_alias(alias, Origin::Alias(alias_info.clone()));
-
-        // Everything below the trait boundary meters in EVM gas.
-        let (alias_str, remaining_after) = self.materialize_alias(
-            registry,
-            rk,
-            journal,
-            alias,
-            native_address,
-            native_public_key,
-            &context,
-            gas_remaining.as_runtime(RuntimeId::Ethereum),
-        )?;
-        Ok((
-            alias_str,
-            AliasResolution::build(Gas::new(remaining_after, RuntimeId::Ethereum)),
-        ))
     }
 
     fn compute_alias(&self, native_address: &[u8]) -> Result<String, TezosXRuntimeError> {
@@ -2198,10 +2178,8 @@ mod tests {
         // For an EVM address with no /origin record, resolve_routing returns
         // RoutingDecision::Native → AliasInfo { runtime: Ethereum,
         // native_address: canonicalize(Ethereum, addr.to_string()) }.
-        // canonicalize lowercases the address, so the bytes are "0x11...11".
-        let source_native_addr =
-            String::from_utf8(alias_calls[1].0.native_address.clone())
-                .expect("native_address must be valid UTF-8");
+        // canonicalize lowercases the address, so this is "0x11...11".
+        let source_native_addr = alias_calls[1].0.native_address.clone();
         let expected_originator_hex =
             format!("0x{}", alloy_primitives::hex::encode(originator.as_slice()));
         assert_eq!(
@@ -2675,7 +2653,7 @@ mod tests {
 
             let alias_info = AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1ABC".to_vec(),
+                native_address: "tz1ABC".to_string(),
             };
             let mut account = StorageAccount::from_address(&addr).unwrap();
             account
@@ -2761,7 +2739,7 @@ mod tests {
         fn alias_info() -> AliasInfo {
             AliasInfo {
                 runtime: RuntimeId::Tezos,
-                native_address: b"tz1RjtZUVeLhADFHDL8UwDZA6vjWWhojpu5w".to_vec(),
+                native_address: "tz1RjtZUVeLhADFHDL8UwDZA6vjWWhojpu5w".to_string(),
             }
         }
 
@@ -2804,10 +2782,11 @@ mod tests {
 
             // Budget 0 is below the EVM intrinsic gas, so init fails
             // before it can run.
-            let failed = runtime.ensure_alias(
+            let failed = runtime.create_alias(
                 &registry,
                 &mut rk,
                 &mut journal,
+                &alias.to_string(),
                 info.clone(),
                 Some(pubkey.as_slice()),
                 context(),
@@ -2854,11 +2833,12 @@ mod tests {
             // A second attempt re-runs full materialization and fails the
             // same way, rather than short-circuiting through a stale
             // classification.
-            let retried = runtime.ensure_alias(
+            let retried = runtime.create_alias(
                 &registry,
                 &mut rk,
                 &mut journal,
-                info,
+                &alias.to_string(),
+                info.clone(),
                 Some(pubkey.as_slice()),
                 context(),
                 Gas::ZERO,

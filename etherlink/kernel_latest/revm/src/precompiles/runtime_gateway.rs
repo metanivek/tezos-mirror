@@ -384,17 +384,12 @@ fn dispatch_origin_of<
             canonicalize_native_address(source_runtime, &addr_str),
         )
             .abi_encode_params(),
-        Classification::Alias(info) => {
-            let runtime = info.runtime;
-            let native_str = info.into_native_address_string().map_err(|e| {
-                CustomPrecompileError::Revert(
-                    format!("originOf: alias native_address is not UTF-8: {e}"),
-                    *gas,
-                )
-            })?;
-            (ORIGIN_KIND_ALIAS, u16::from(u8::from(runtime)), native_str)
-                .abi_encode_params()
-        }
+        Classification::Alias(info) => (
+            ORIGIN_KIND_ALIAS,
+            u16::from(u8::from(info.runtime)),
+            info.native_address,
+        )
+            .abi_encode_params(),
     };
     Ok(output)
 }
@@ -469,20 +464,14 @@ fn dispatch_resolve_address<
         }
         Classification::Alias(info) if info.runtime == target_runtime => {
             // Direct recorded lookup — target address is in the Alias record.
-            let native_str = info.into_native_address_string().map_err(|e| {
-                CustomPrecompileError::Revert(
-                    format!("resolveAddress: alias native_address is not UTF-8: {e}"),
-                    *gas,
-                )
-            })?;
-            (true, RESOLUTION_RECORDED, native_str).abi_encode_params()
+            (true, RESOLUTION_RECORDED, info.native_address).abi_encode_params()
         }
         source_class => {
             // Derivation path: either Native or Alias pointing to a third
             // runtime (vacuous in two-runtime mode).
-            let basis: Vec<u8> = match &source_class {
+            let basis: String = match &source_class {
                 Classification::Native => {
-                    canonicalize_native_address(source_runtime, &addr_str).into_bytes()
+                    canonicalize_native_address(source_runtime, &addr_str)
                 }
                 Classification::Alias(info) => info.native_address.clone(),
                 Classification::Unknown => unreachable!("Unknown handled above"),
@@ -491,7 +480,7 @@ fn dispatch_resolve_address<
             // Derive the target alias.
             charge(gas, DERIVE_ALIAS_STRING_COST)?;
             let derived = registry
-                .compute_alias(AliasInfo {
+                .compute_alias(&AliasInfo {
                     runtime: target_runtime,
                     native_address: basis.clone(),
                 })
@@ -1618,7 +1607,7 @@ mod tests {
         let native_addr = "KT1_NATIVE".to_string();
         let alias_info = AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: native_addr.as_bytes().to_vec(),
+            native_address: native_addr.to_string(),
         };
         let registry =
             StubRegistry::with_classification(Classification::Alias(alias_info));
@@ -1653,7 +1642,7 @@ mod tests {
 
         let destination_classification = Some(Classification::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: source_addr.as_bytes().to_vec(),
+            native_address: source_addr.to_string(),
         }));
         // expected_derivation_runtime = Tezos (the target).  If the code
         // passes source_runtime (Ethereum) instead, the assert fires.
@@ -1796,7 +1785,7 @@ mod tests {
         let rk = RuntimeKeyspaces::default();
         let alias_info = AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: b"KT1_X".to_vec(),
+            native_address: "KT1_X".to_string(),
         };
         let registry =
             StubRegistry::with_classification(Classification::Alias(alias_info));
@@ -1822,7 +1811,7 @@ mod tests {
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let staged = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: b"KT1_STAGED".to_vec(),
+            native_address: "KT1_STAGED".to_string(),
         });
         let mut gas = Gas::new(GAS_LIMIT);
         let output = dispatch_origin_of(
@@ -1849,7 +1838,7 @@ mod tests {
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let staged = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: b"0xstaged".to_vec(),
+            native_address: "0xstaged".to_string(),
         });
         let mut gas = Gas::new(GAS_LIMIT);
         dispatch_origin_of(

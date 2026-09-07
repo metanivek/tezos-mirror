@@ -170,29 +170,18 @@ pub fn canonicalize_native_address(runtime: RuntimeId, addr: &str) -> String {
 
 /// Payload carried by the alias variant of Origin.
 ///
-/// The address bytes hold the UTF-8 form of the address string (hex
-/// for EVM, b58check for Tezos). That is the same byte sequence the
-/// alias derivation hashes, so the read path can reconstruct the
-/// original string with a UTF-8 decode instead of going through the
-/// source runtime address decoder.
+/// The address is the canonical address string (hex for EVM, b58check
+/// for Tezos). Its UTF-8 bytes are what the alias derivation hashes, so
+/// the read path gets the original string back for free instead of
+/// going through the source runtime address decoder.
+///
+/// The binary encoding is a size-prefixed byte sequence, identical to
+/// the `Vec<u8>` this field used to be; the UTF-8 invariant it always
+/// carried is now checked once at decoding instead of at each use.
 #[derive(Clone, Debug, Eq, PartialEq, BinWriter, NomReader, HasEncoding)]
 pub struct AliasInfo {
     pub runtime: RuntimeId,
-    #[encoding(dynamic, bytes)]
-    pub native_address: Vec<u8>,
-}
-
-impl AliasInfo {
-    /// Decode [`Self::native_address`] as the UTF-8 string it is
-    /// invariantly supposed to be (see the type's doc comment),
-    /// consuming `self`. A non-UTF-8 payload is data corruption;
-    /// callers should surface it as a runtime-local kernel error, not
-    /// silently substitute `U+FFFD`.
-    pub fn into_native_address_string(
-        self,
-    ) -> Result<String, std::string::FromUtf8Error> {
-        String::from_utf8(self.native_address)
-    }
+    pub native_address: String,
 }
 
 /// Classification record stored at an account classification path.
@@ -296,7 +285,7 @@ impl OriginalSource {
 /// How a source's translation toward a chosen target runtime should be routed.
 pub enum RoutingDecision {
     /// Source is recorded as an alias of an account in the target
-    /// runtime. The recorded bytes are the answer; decode and return.
+    /// runtime. The recorded address is the answer; return it.
     RoundTrip(String),
     /// Source is recorded as an alias of an account in a runtime other
     /// than the target. Use the recorded info as the basis for derivation
@@ -313,13 +302,13 @@ pub enum RoutingDecision {
 pub fn resolve_routing(
     origin: Option<Origin>,
     target_runtime: RuntimeId,
-) -> Result<RoutingDecision, std::string::FromUtf8Error> {
+) -> RoutingDecision {
     match origin {
         Some(Origin::Alias(info)) if info.runtime == target_runtime => {
-            String::from_utf8(info.native_address).map(RoutingDecision::RoundTrip)
+            RoutingDecision::RoundTrip(info.native_address)
         }
-        Some(Origin::Alias(info)) => Ok(RoutingDecision::Transitive(info)),
-        Some(Origin::Native) | None => Ok(RoutingDecision::Native),
+        Some(Origin::Alias(info)) => RoutingDecision::Transitive(info),
+        Some(Origin::Native) | None => RoutingDecision::Native,
     }
 }
 
@@ -429,7 +418,7 @@ mod origin_tests {
     fn alias_ethereum_roundtrip() {
         let origin = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,
-            native_address: vec![0xde, 0xad, 0xbe, 0xef],
+            native_address: "0xab".to_string(),
         });
         let bytes = encode(&origin);
         assert_eq!(bytes.len(), 10);
@@ -442,12 +431,44 @@ mod origin_tests {
     fn alias_tezos_roundtrip() {
         let origin = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Tezos,
-            native_address: b"tz1...".to_vec(),
+            native_address: "tz1...".to_string(),
         });
         let bytes = encode(&origin);
         assert_eq!(bytes[0], 1u8);
         assert_eq!(bytes[1], 0u8);
         assert_eq!(decode(&bytes), origin);
+    }
+
+    /// `native_address` used to be a `Vec<u8>` under
+    /// `#[encoding(dynamic, bytes)]`. Both that and the `String` it is
+    /// now encode as a 4-byte big-endian length followed by the raw
+    /// bytes, so accounts classified by earlier kernels decode
+    /// unchanged and no storage migration is needed. Pin the layout so
+    /// a future encoding change cannot silently break them.
+    #[test]
+    fn alias_encoding_is_unchanged_by_the_string_field() {
+        let origin = Origin::Alias(AliasInfo {
+            runtime: RuntimeId::Ethereum,
+            native_address: "0xab".to_string(),
+        });
+        assert_eq!(
+            encode(&origin),
+            vec![
+                1, // Origin::Alias tag
+                1, // RuntimeId::Ethereum tag
+                0, 0, 0, 4, // length prefix, big-endian u32
+                b'0', b'x', b'a', b'b',
+            ],
+        );
+    }
+
+    /// The UTF-8 invariant the old `Vec<u8>` field carried by
+    /// convention is now enforced by the decoder itself.
+    #[test]
+    fn alias_rejects_non_utf8_payload() {
+        // 0xff never appears in well-formed UTF-8.
+        let bytes = vec![1u8, 1u8, 0, 0, 0, 2, 0xff, 0xfe];
+        assert!(Origin::nom_read(&bytes).is_err());
     }
 
     #[test]
