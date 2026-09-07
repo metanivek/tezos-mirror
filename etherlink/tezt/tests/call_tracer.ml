@@ -568,6 +568,241 @@ let test_trace_transaction_call_tracer_with_logs =
     (String.lowercase_ascii (log_address log_b) = String.lowercase_ascii addr_b)
       string
       ~error_msg:"LoggerB log misattributed, expected address %R but got %L") ;
+  (* geth [position]: LoggerA's first log precedes the [LoggerB] call (0x0),
+     its second follows it (0x1); LoggerB's own log sits at 0x0. *)
+  let log_position log = JSON.(log |-> "position" |> as_string) in
+  Check.(
+    (log_position log_a1 = "0x0")
+      string
+      ~error_msg:"Wrong first LoggerA log position, expected %R but got %L") ;
+  Check.(
+    (log_position log_a2 = "0x1")
+      string
+      ~error_msg:"Wrong second LoggerA log position, expected %R but got %L") ;
+  Check.(
+    (log_position log_b = "0x0")
+      string
+      ~error_msg:"Wrong LoggerB log position, expected %R but got %L") ;
+  unit
+
+let test_trace_transaction_call_tracer_log_position_after_silent_call =
+  register_all
+    ~__FILE__
+    ~kernels:[Latest]
+    ~tags:["evm"; "rpc"; "trace"; "call_trace"; "with_logs"; "position"]
+    ~title:
+      "debug_traceTransaction with calltracer positions logs after a silent \
+       sub-call"
+    ~da_fee:Wei.zero
+    ~time_between_blocks:Nothing
+  @@ fun {sequencer; evm_version; _} _protocol ->
+  let endpoint = Evm_node.endpoint sequencer in
+  let sender = Eth_account.bootstrap_accounts.(0) in
+  (* [runAfterSilentCall] calls [LoggerB.bump] (silent), logs, calls
+     [LoggerB.logValue], logs again: positions 1 and 2. The silent frame
+     counts, which the transaction's log order alone cannot show. *)
+  let* logger_nested = Solidity_contracts.logger_nested evm_version in
+  let* () =
+    Eth_cli.add_abi ~label:logger_nested.label ~abi:logger_nested.abi ()
+  in
+  let* contract_address, _ =
+    send_transaction_to_sequencer
+      (Eth_cli.deploy
+         ~source_private_key:sender.Eth_account.private_key
+         ~endpoint
+         ~abi:logger_nested.label
+         ~bin:logger_nested.bin)
+      sequencer
+  in
+  let* _ = produce_block sequencer in
+  let value_a1 = 251197 in
+  let value_b = 424242 in
+  let value_a2 = 999001 in
+  let* tx_hash =
+    send_transaction_to_sequencer
+      (Eth_cli.contract_send
+         ~source_private_key:sender.private_key
+         ~endpoint
+         ~abi_label:logger_nested.label
+         ~address:contract_address
+         ~method_call:
+           (Format.sprintf
+              "runAfterSilentCall(%d,%d,%d)"
+              value_a1
+              value_b
+              value_a2))
+      sequencer
+  in
+  let* _ = produce_block sequencer in
+  let*@ trace_result =
+    Rpc.trace_transaction
+      ~tracer:"callTracer"
+      ~transaction_hash:tx_hash
+      ~tracer_config:[("withLog", `Bool true); ("onlyTopCall", `Bool false)]
+      sequencer
+  in
+  let log_position log = JSON.(log |-> "position" |> as_string) in
+  let calls = JSON.(trace_result |-> "calls" |> as_list) in
+  Check.(
+    (List.length calls = 2)
+      int
+      ~error_msg:"Wrong number of nested calls, expected %R but got %L") ;
+  (* The silent frame is reported, and carries no logs. *)
+  let silent_call = List.nth calls 0 in
+  Check.(
+    (List.length JSON.(silent_call |-> "logs" |> as_list) = 0)
+      int
+      ~error_msg:"The bump() frame must carry no logs, got %L") ;
+  let logs_a = JSON.(trace_result |-> "logs" |> as_list) in
+  Check.(
+    (List.length logs_a = 2)
+      int
+      ~error_msg:"Wrong number of logs on the LoggerA frame, expected %R got %L") ;
+  Check.(
+    (log_position (List.nth logs_a 0) = "0x1")
+      string
+      ~error_msg:
+        "Wrong position for the log following the silent call, expected %R but \
+         got %L") ;
+  Check.(
+    (log_position (List.nth logs_a 1) = "0x2")
+      string
+      ~error_msg:
+        "Wrong position for the log following both calls, expected %R but got \
+         %L") ;
+  (* The logging frame's own log fires before any of its sub-calls. *)
+  let logs_b = JSON.(List.nth calls 1 |-> "logs" |> as_list) in
+  Check.(
+    (List.length logs_b = 1)
+      int
+      ~error_msg:"Wrong number of logs on the LoggerB frame, expected %R got %L") ;
+  Check.(
+    (log_position (List.hd logs_b) = "0x0")
+      string
+      ~error_msg:"Wrong LoggerB log position, expected %R but got %L") ;
+  unit
+
+let test_trace_transaction_call_tracer_log_position_identical_nested_logs =
+  register_all
+    ~__FILE__
+    ~kernels:[Latest]
+    ~tags:["evm"; "rpc"; "trace"; "call_trace"; "with_logs"; "position"]
+    ~title:
+      "debug_traceTransaction with calltracer orders identical logs at nested \
+       frames"
+    ~da_fee:Wei.zero
+    ~time_between_blocks:Nothing
+  @@ fun {sequencer; evm_version; _} _protocol ->
+  let endpoint = Evm_node.endpoint sequencer in
+  let sender = Eth_account.bootstrap_accounts.(0) in
+  let* logger_nested = Solidity_contracts.logger_nested evm_version in
+  let* () =
+    Eth_cli.add_abi ~label:logger_nested.label ~abi:logger_nested.abi ()
+  in
+  let* contract_address, _ =
+    send_transaction_to_sequencer
+      (Eth_cli.deploy
+         ~source_private_key:sender.Eth_account.private_key
+         ~endpoint
+         ~abi:logger_nested.label
+         ~bin:logger_nested.bin)
+      sequencer
+  in
+  let* _ = produce_block sequencer in
+  let value = 251197 in
+  (* Both entrypoints emit [LogFromA(value)] from [contract_address] twice —
+     once from the self-call frame, once from the entrypoint frame — with
+     [LogFromB(value)] in between, only in opposite interleavings. The chain
+     logs are therefore identical and cannot order the two [LogFromA]: the
+     positions the kernel recorded at emission can. *)
+  let call_and_trace method_call =
+    let* tx_hash =
+      send_transaction_to_sequencer
+        (Eth_cli.contract_send
+           ~source_private_key:sender.private_key
+           ~endpoint
+           ~abi_label:logger_nested.label
+           ~address:contract_address
+           ~method_call)
+        sequencer
+    in
+    let* _ = produce_block sequencer in
+    let*@ trace =
+      Rpc.trace_transaction
+        ~tracer:"callTracer"
+        ~transaction_hash:tx_hash
+        ~tracer_config:[("withLog", `Bool true); ("onlyTopCall", `Bool false)]
+        sequencer
+    in
+    let*@! Transaction.{blockNumber; _} =
+      Rpc.get_transaction_receipt ~tx_hash sequencer
+    in
+    let block_number = Int32.to_int blockNumber in
+    let*@ chain_logs =
+      Rpc.get_logs
+        ~from_block:(Number block_number)
+        ~to_block:(Number block_number)
+        sequencer
+    in
+    let bodies =
+      List.map
+        (fun log ->
+          let address, topics, data = Transaction.extract_log_body log in
+          String.lowercase_ascii
+            (String.concat "," ((address :: topics) @ [data])))
+        chain_logs
+    in
+    return (trace, String.concat "|" bodies)
+  in
+  let* inner_first_trace, inner_first_logs =
+    call_and_trace (Format.sprintf "runDuplicateInnerFirst(%d)" value)
+  in
+  let* outer_first_trace, outer_first_logs =
+    call_and_trace (Format.sprintf "runDuplicateOuterFirst(%d)" value)
+  in
+  Check.(
+    (inner_first_logs = outer_first_logs)
+      string
+      ~error_msg:"The two transactions must emit the same logs: %L then %R") ;
+  let check_frames ~prefix trace ~entrypoint ~self_call =
+    let only ~what node field =
+      match JSON.(node |-> field |> as_list) with
+      | [x] -> x
+      | l ->
+          Test.fail
+            "%s: expected exactly 1 %s, got %d"
+            prefix
+            what
+            (List.length l)
+    in
+    let position node =
+      JSON.(only ~what:"log" node "logs" |-> "position" |> as_string)
+    in
+    let self_call_frame = only ~what:"sub-call" trace "calls" in
+    let logger_b_frame = only ~what:"sub-call" self_call_frame "calls" in
+    Check.(
+      (position trace = entrypoint)
+        string
+        ~error_msg:(prefix ^ ": entrypoint log position %L, expected %R")) ;
+    Check.(
+      (position self_call_frame = self_call)
+        string
+        ~error_msg:(prefix ^ ": self-call log position %L, expected %R")) ;
+    Check.(
+      (position logger_b_frame = "0x0")
+        string
+        ~error_msg:(prefix ^ ": LoggerB log position %L, expected %R"))
+  in
+  check_frames
+    ~prefix:"inner first"
+    inner_first_trace
+    ~entrypoint:"0x1"
+    ~self_call:"0x0" ;
+  check_frames
+    ~prefix:"outer first"
+    outer_first_trace
+    ~entrypoint:"0x0"
+    ~self_call:"0x1" ;
   unit
 
 let test_trace_transaction_call_trace_certain_depth =
@@ -1306,6 +1541,9 @@ let () =
   test_trace_transaction_calltracer_all_types protocols ;
   test_trace_transaction_calltracer_create_to_field protocols ;
   test_trace_transaction_call_tracer_with_logs protocols ;
+  test_trace_transaction_call_tracer_log_position_after_silent_call protocols ;
+  test_trace_transaction_call_tracer_log_position_identical_nested_logs
+    protocols ;
   test_trace_transaction_call_revert protocols ;
   test_trace_transaction_call_trace_certain_depth protocols ;
   test_trace_transaction_call_trace_revert protocols ;

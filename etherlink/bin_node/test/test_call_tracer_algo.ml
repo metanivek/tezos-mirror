@@ -274,6 +274,7 @@ let test_decoding_rlp =
                 address = Address (Hex (make_string 20 "19"));
                 topics = [make_hex 32 "19"; make_hex 32 "0d"];
                 data = Hex "000102";
+                position = Qty Z.zero;
               };
           ]
       in
@@ -306,6 +307,68 @@ let test_decoding_rlp =
             (depth = expected_depth)
               int
               ~error_msg:"wrong depth, expected %R but got %L") ;
+          Check.is_true
+            (call = expected)
+            ~error_msg:
+              (Format.asprintf
+                 "error decoding call, expected \n%s \n but got \n%s "
+                 (to_string expected)
+                 (CallTracer.to_string call)) ;
+          Lwt.return_unit)
+
+let test_decoding_rlp_log_position =
+  register_unit_test
+    ~title:"CallTracer: Test decoding call with a log position"
+    ~tags:["call_tracer"; "debug"; "encoding"; "rlp"; "position"]
+    (fun _protocol ->
+      let open Evm_node_lib_dev_encoding.Tracer_types in
+      let open Evm_node_lib_dev_encoding.Ethereum_types in
+      (* [test_decoding_rlp]'s call with a fourth per-log field. Bytes
+         pinned by [encoding_carries_the_log_position] in
+         [etherlink/kernel_latest/evm_inspectors/src/call_tracer.rs]. *)
+      let bytes =
+        Hex.to_bytes
+          (`Hex
+             "f8e18443414c4c941919191919191919191919191919191919191919d5941919191919191919191919191919191919191919a03dd5030000000000000000000000000000000000000000000000000000000000c988881300000000000088881300000000000083000102c483000102c483000102f86af868f866941919191919191919191919191919191919191919f842a01919191919191919191919191919191919191919191919191919191919191919a00d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d83000102880100000000000000820200")
+      in
+      let logs =
+        Some
+          [
+            CallTracer.
+              {
+                address = Address (Hex (make_string 20 "19"));
+                topics = [make_hex 32 "19"; make_hex 32 "0d"];
+                data = Hex "000102";
+                position = Qty Z.one;
+              };
+          ]
+      in
+      let expected =
+        CallTracer.
+          {
+            calls = [];
+            type_ = "CALL";
+            from = Address (Hex (make_string 20 "19"));
+            to_ = Some (Address (Hex (make_string 20 "19")));
+            value = Z.of_int 251197;
+            gas = Some (Z.of_int 5000);
+            gas_used = Z.of_int 5000;
+            input = Hex "000102";
+            output = Some (Hex "000102");
+            error = Some "\000\001\002";
+            revert_reason = None;
+            logs;
+          }
+      in
+      match
+        CallTracer.decode_call
+          (Option.value bytes ~default:(Bytes.of_string "\x01"))
+      with
+      | Error e ->
+          Test.fail "Failed to rebuild call %a" (Format.pp_print_list pp) e
+      | Ok (call, depth) ->
+          Check.(
+            (depth = 2) int ~error_msg:"wrong depth, expected %R but got %L") ;
           Check.is_true
             (call = expected)
             ~error_msg:
@@ -423,6 +486,7 @@ let test_decoding_rlp_revert_reason =
                 address = Address (Hex (make_string 20 "19"));
                 topics = [make_hex 32 "19"; make_hex 32 "0d"];
                 data = Hex "000102";
+                position = Qty Z.zero;
               };
           ]
       in
@@ -560,6 +624,7 @@ let some_logs =
         address = Ethereum_types.(Address (Hex (make_string 20 "19")));
         topics = [make_hex 32 "19"];
         data = Ethereum_types.Hex "000102";
+        position = Ethereum_types.Qty Z.zero;
       };
   ]
 
@@ -641,6 +706,7 @@ let () =
   test_fail_wrong_depth protocols ;
   test_fail_wrong_depth_2 protocols ;
   test_decoding_rlp protocols ;
+  test_decoding_rlp_log_position protocols ;
   test_decoding_rlp_revert_reason protocols ;
   test_decoding_rlp_truncated_revert_reason protocols ;
   test_drop_reverted_subtree protocols ;

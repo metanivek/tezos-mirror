@@ -23,10 +23,7 @@ use revm::{
     Inspector,
 };
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
-use tezos_ethereum::{
-    rlp_helpers::{check_list, decode_field, decode_option, next},
-    Log as RlpLog,
-};
+use tezos_ethereum::rlp_helpers::{check_list, decode_field, decode_option, next};
 use tezos_evm_logging::{log, Level::Debug};
 use tezos_smart_rollup_host::storage::StorageV1;
 
@@ -64,6 +61,31 @@ impl Decodable for CallTracerInput {
     }
 }
 
+/// A log captured on a frame, carrying geth's `position`: the number of
+/// the enclosing frame's sub-calls that had completed when the log fired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTraceLog {
+    pub log: Log,
+    pub position: u64,
+}
+
+impl Encodable for CallTraceLog {
+    fn rlp_append(&self, stream: &mut RlpStream) {
+        stream.begin_list(4);
+        append_address(stream, &self.log.address);
+        let topics: Vec<primitive_types::H256> = self
+            .log
+            .data
+            .topics()
+            .iter()
+            .map(|topic| primitive_types::H256(topic.0))
+            .collect();
+        stream.append_list(&topics);
+        stream.append(&self.log.data.data.to_vec());
+        append_u64_le(stream, &self.position);
+    }
+}
+
 #[derive(Debug)]
 pub struct CallTrace {
     type_: Vec<u8>,
@@ -78,7 +100,7 @@ pub struct CallTrace {
     /// `output` will also be used in revert reason, if there's any.
     output: Option<Vec<u8>>,
     error: Option<Vec<u8>>,
-    logs: Option<Vec<Log>>,
+    logs: Option<Vec<CallTraceLog>>,
     /// `depth` is helpful to reconstruct the tree of call on the EVM node's side.
     depth: u16,
     /// Intrinsic gas of the traced transaction, captured when the frame
@@ -86,6 +108,10 @@ pub struct CallTrace {
     /// accounts intrinsic gas as geth's callTracer does. Added to
     /// `gas_used` at close; not part of the encoded trace.
     initial_gas: u64,
+    /// Sub-calls of this frame that have completed — the length geth's
+    /// `calls` array would have. Stamped on each log as its `position`;
+    /// not part of the encoded trace.
+    completed_calls: u64,
 }
 
 impl Encodable for CallTrace {
@@ -100,23 +126,7 @@ impl Encodable for CallTrace {
         stream.append(&self.input);
         stream.append(&self.output);
         stream.append(&self.error);
-        let logs = self.logs.as_ref().map(|logs| {
-            logs.iter()
-                .map(|Log { address, data }| {
-                    let topics = data
-                        .topics()
-                        .iter()
-                        .map(|topic| primitive_types::H256(topic.0))
-                        .collect();
-                    RlpLog {
-                        address: primitive_types::H160(*address.0),
-                        topics,
-                        data: data.data.to_vec(),
-                    }
-                })
-                .collect::<Vec<RlpLog>>()
-        });
-        append_option_canonical(stream, &logs, |s, logs| s.append_list(logs));
+        append_option_canonical(stream, &self.logs, |s, logs| s.append_list(logs));
         append_u16_le(stream, &self.depth);
     }
 }
@@ -142,6 +152,7 @@ impl CallTrace {
             logs: None,
             depth,
             initial_gas: 0,
+            completed_calls: 0,
         }
     }
 
@@ -187,7 +198,7 @@ impl CallTrace {
         }
     }
 
-    pub fn add_logs(&mut self, logs: Option<Vec<Log>>) {
+    pub fn add_logs(&mut self, logs: Option<Vec<CallTraceLog>>) {
         self.logs = logs;
     }
 }
@@ -250,6 +261,13 @@ impl CallTracer {
                 call_trace.add_error_from_instruction_result(instruction_result);
 
                 self.pending_traces.push(call_trace);
+
+                // Where geth appends the finished child to its parent's
+                // `calls` array. Unreported frames are not appended, so
+                // `only_top_call` keeps every position at 0, as geth does.
+                if let Some(parent) = self.call_trace.last_mut() {
+                    parent.completed_calls += 1;
+                }
             }
         }
     }
@@ -283,7 +301,10 @@ impl CallTracer {
         // The frame that emitted the LOG opcode is the one currently
         // executing, i.e. the frame on top of the stack.
         if let Some(t) = self.call_trace.last_mut() {
-            t.logs.get_or_insert_with(Vec::new).push(log);
+            let position = t.completed_calls;
+            t.logs
+                .get_or_insert_with(Vec::new)
+                .push(CallTraceLog { log, position });
         }
     }
 
@@ -453,5 +474,191 @@ where
         log: Log,
     ) {
         self.inject_log(log);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use revm::primitives::LogData;
+
+    fn tracer(only_top_call: bool) -> CallTracer {
+        CallTracer::new(
+            CallTracerConfig {
+                only_top_call,
+                with_logs: true,
+            },
+            SpecId::default(),
+            None,
+        )
+    }
+
+    /// Enter a frame, as the `call` inspector hook does.
+    fn enter(tracer: &mut CallTracer) {
+        let depth = tracer.call_trace.len() as u16;
+        tracer.call_trace.push(CallTrace::new_minimal_trace(
+            b"CALL".to_vec(),
+            Address::ZERO,
+            U256::ZERO,
+            Vec::new(),
+            depth,
+        ));
+    }
+
+    /// Leave the innermost frame, as the `call_end` inspector hook does.
+    fn leave(tracer: &mut CallTracer) {
+        tracer.end_transaction_layer(0, &Bytes::new(), &InstructionResult::Return);
+    }
+
+    fn some_log() -> Log {
+        Log {
+            address: Address::ZERO,
+            data: LogData::new_unchecked(vec![B256::ZERO], Bytes::new()),
+        }
+    }
+
+    /// Positions recorded on the reported frame at `depth`.
+    fn positions(tracer: &CallTracer, depth: u16) -> Vec<u64> {
+        tracer
+            .pending_traces
+            .iter()
+            .find(|trace| trace.depth == depth)
+            .expect("frame should have been reported")
+            .logs
+            .iter()
+            .flatten()
+            .map(|log| log.position)
+            .collect()
+    }
+
+    #[test]
+    fn position_counts_completed_sub_calls() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer);
+        tracer.inject_log(some_log());
+        enter(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![0, 1]);
+        assert_eq!(positions(&tracer, 1), vec![0]);
+    }
+
+    #[test]
+    fn position_counts_a_sub_call_that_emitted_nothing() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer);
+        enter(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        // A silent sub-call counts — the point of recording at emission time.
+        assert_eq!(positions(&tracer, 0), vec![1]);
+    }
+
+    #[test]
+    fn only_top_call_keeps_positions_at_zero() {
+        let mut tracer = tracer(true);
+        enter(&mut tracer);
+        enter(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(tracer.pending_traces.len(), 1);
+        assert_eq!(positions(&tracer, 0), vec![0]);
+    }
+
+    #[test]
+    fn encoding_carries_the_log_position() {
+        let mut trace = CallTrace::new_minimal_trace(
+            b"CALL".to_vec(),
+            Address::from([25; 20]),
+            U256::from(251197),
+            vec![0x00, 0x01, 0x02],
+            2,
+        );
+        trace.add_to(Some(Address::from([25; 20])));
+        trace.add_gas(Some(5000));
+        trace.add_gas_used(5000);
+        trace.add_output(Some(vec![0x00, 0x01, 0x02]));
+        trace.add_error(Some(vec![0x00, 0x01, 0x02]));
+        trace.add_logs(Some(vec![CallTraceLog {
+            log: Log {
+                address: Address::from([25; 20]),
+                data: LogData::new_unchecked(
+                    vec![B256::from([25; 32]), B256::from([13; 32])],
+                    Bytes::from_static(&[0x00, 0x01, 0x02]),
+                ),
+            },
+            position: 1,
+        }]));
+
+        // Decoded back by `test_decoding_rlp_log_position` in
+        // `etherlink/bin_node/test/test_call_tracer_algo.ml`.
+        assert_eq!(
+            hex::encode(rlp::encode(&trace)),
+            "f8e18443414c4c941919191919191919191919191919191919191919d5\
+             941919191919191919191919191919191919191919a03dd50300000000\
+             00000000000000000000000000000000000000000000000000c9888813\
+             00000000000088881300000000000083000102c483000102c483000102\
+             f86af868f866941919191919191919191919191919191919191919f842\
+             a019191919191919191919191919191919191919191919191919191919\
+             19191919a00d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d\
+             0d0d0d0d0d0d0d0d83000102880100000000000000820200"
+        );
+    }
+
+    /// Distinct from [`some_log`] under (address, topics, data).
+    fn other_log() -> Log {
+        Log {
+            address: Address::ZERO,
+            data: LogData::new_unchecked(vec![B256::from([1; 32])], Bytes::new()),
+        }
+    }
+
+    // The two tests below run the same three frames and emit the same
+    // sequence of logs — the very same log at a frame and at its parent,
+    // with a distinct one in between — for opposite interleavings. The
+    // receipt is identical; only positions recorded at emission tell the
+    // two apart.
+
+    #[test]
+    fn position_orders_identical_logs_inner_first() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer); // run()
+        enter(&mut tracer); // inner()
+        tracer.inject_log(some_log());
+        enter(&mut tracer); // ping()
+        tracer.inject_log(other_log());
+        leave(&mut tracer);
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![1]);
+        assert_eq!(positions(&tracer, 1), vec![0]);
+        assert_eq!(positions(&tracer, 2), vec![0]);
+    }
+
+    #[test]
+    fn position_orders_identical_logs_outer_first() {
+        let mut tracer = tracer(false);
+        enter(&mut tracer); // run()
+        tracer.inject_log(some_log());
+        enter(&mut tracer); // inner()
+        enter(&mut tracer); // ping()
+        tracer.inject_log(other_log());
+        leave(&mut tracer);
+        tracer.inject_log(some_log());
+        leave(&mut tracer);
+        leave(&mut tracer);
+
+        assert_eq!(positions(&tracer, 0), vec![0]);
+        assert_eq!(positions(&tracer, 1), vec![1]);
+        assert_eq!(positions(&tracer, 2), vec![0]);
     }
 }

@@ -953,6 +953,7 @@ module CallTracer = struct
     address : Ethereum_types.address;
     topics : Ethereum_types.hex list;
     data : Ethereum_types.hex;
+    position : Ethereum_types.quantity;
   }
 
   type output = {
@@ -978,12 +979,15 @@ module CallTracer = struct
   let logs_encoding =
     let open Data_encoding in
     conv
-      (fun {address; topics; data} -> (address, topics, data))
-      (fun (address, topics, data) -> {address; topics; data})
-      (obj3
+      (fun {address; topics; data; position} ->
+        (address, topics, data, position))
+      (fun (address, topics, data, position) ->
+        {address; topics; data; position})
+      (obj4
          (req "address" Ethereum_types.address_encoding)
          (req "topics" (list Ethereum_types.hex_encoding))
-         (req "data" Ethereum_types.hex_encoding))
+         (req "data" Ethereum_types.hex_encoding)
+         (req "position" Ethereum_types.quantity_encoding))
 
   (* Bytes.sub, but returns an error. *)
   let sub_bytes ?error bytes offset length =
@@ -1103,12 +1107,18 @@ module CallTracer = struct
   let decode_logs item =
     let open Result_syntax in
     let open Ethereum_types in
+    let decode_body address topics data position =
+      let* address = From_rlp.decode_address address in
+      let* topics = Rlp.decode_list From_rlp.decode_hex topics in
+      let* data = From_rlp.decode_hex data in
+      return {address; topics; data; position}
+    in
     match item with
     | Rlp.List [address; topics; data] ->
-        let* address = From_rlp.decode_address address in
-        let* topics = Rlp.decode_list From_rlp.decode_hex topics in
-        let* data = From_rlp.decode_hex data in
-        return {address; topics; data}
+        decode_body address topics data (Qty Z.zero)
+    | Rlp.List [address; topics; data; position] ->
+        let* position = From_rlp.decode_int position in
+        decode_body address topics data (Qty (Z.of_int position))
     | _ -> tzfail (error_of_fmt "Invalid RLP encoding for the logs")
 
   let decode_call bytes =
