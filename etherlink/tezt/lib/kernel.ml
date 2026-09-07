@@ -72,11 +72,12 @@ let of_tag tag =
 
 (* Select the appropriate EVM version for the specified kernel.
 
-   NOTE: This function must be updated when Mainnet kernels start
-   supporting configurable (overridable) EVM versions. *)
+   Mainnet now honours an explicitly requested version: ganesha-r1 ships
+   storage version 65, the same generation as Latest, and [kernel_config]
+   emits the evm_version slot for it. Previewnet keeps the default until
+   someone checks that its kernel reads that slot. *)
 let select_evm_version ?evm_version kernel =
   match (evm_version, kernel) with
-  | _, Mainnet -> Evm_version.Osaka
+  | Some v, (Latest | Mainnet) -> v
+  | None, (Latest | Mainnet) -> Evm_version.Osaka
   | _, Previewnet -> Evm_version.Osaka
-  | None, Latest -> Evm_version.Osaka
-  | Some v, Latest -> v

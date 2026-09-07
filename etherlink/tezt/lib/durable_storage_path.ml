@@ -53,9 +53,11 @@ let kernel_version = function
 
 let indexes = world_state "/indexes"
 
+(* Isolated out of the world state by the V59 migration
+   ([Storage_version.evm_accounts_isolated], >= 59). Every kernel in the
+   table is past it: Latest and Mainnet are V65, Previewnet is V60. *)
 let eth_accounts = function
-  | Kernel.Latest | Kernel.Mainnet -> evm "/eth_accounts"
-  | Kernel.Previewnet -> world_state "/eth_accounts"
+  | Kernel.Latest | Kernel.Previewnet | Kernel.Mainnet -> evm "/eth_accounts"
 
 let eth_account kernel addr = sf "%s/%s" (eth_accounts kernel) (normalize addr)
 

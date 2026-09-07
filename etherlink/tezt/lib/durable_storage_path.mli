@@ -85,8 +85,9 @@ val sequencer_governance : path
 (** [ticketer] is the path to the ticketer contract. *)
 val ticketer : path
 
-(** [sequencer kernel] is the path to the sequencer key,
-    in world state for [Latest], in the legacy EVM path otherwise. *)
+(** [sequencer kernel] is the path to the sequencer key. It lives in the
+    world state for every kernel in the table: the move happened in V51
+    ([Storage_version.sequencer_key_storage_migrated_to_world_state]). *)
 val sequencer : Kernel.t -> path
 
 (** [sequencer_pool_address] is the path to the L2 address credited with DA fees. *)
