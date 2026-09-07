@@ -88,8 +88,6 @@ impl StorageVersion {
 
 pub const STORAGE_VERSION: StorageVersion = StorageVersion::V65;
 
-pub const PRIVATE_FLAG_KEY: Key = Key::from_static(b"/remove_whitelist");
-
 // Legacy storage version path, outside the `/base` keyspace. Only read once,
 // by `init_storage_versioning` at stage zero, which promotes the recorded
 // value into `/base` and clears this path.

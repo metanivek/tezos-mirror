@@ -12,7 +12,7 @@ use crate::error::Error;
 use crate::error::UpgradeProcessError::Fallback;
 use crate::migration::storage_migration;
 use crate::stage_one::fetch_blueprints;
-use crate::storage::{read_sequencer_pool_address, PRIVATE_FLAG_KEY};
+use crate::storage::read_sequencer_pool_address;
 use anyhow::Context;
 use block::health_check;
 use chains::ETHERLINK_SAFE_STORAGE_ROOT_PATH;
@@ -35,10 +35,6 @@ use tezos_evm_runtime::runtime::KernelHost;
 use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
 use tezos_evm_runtime::snapshot::{KeyspaceHost, SafeKeyspace};
 use tezos_smart_rollup::entrypoint;
-use tezos_smart_rollup::michelson::MichelsonUnit;
-use tezos_smart_rollup::outbox::{
-    OutboxMessage, OutboxMessageWhitelistUpdate, OUTBOX_QUEUE,
-};
 use tezos_smart_rollup_encoding::public_key::PublicKey;
 use tezos_smart_rollup_host::reveal::HostReveal;
 use tezos_smart_rollup_host::storage::{CoreStorage, StorageV1};
@@ -87,26 +83,6 @@ extern crate alloc;
 // This needs to be set to the frozen commit on snapshot time
 const KERNEL_VERSION: &str = env!("GIT_HASH");
 
-fn switch_to_public_rollup<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
-) -> Result<(), Error>
-where
-    Host: StorageV1 + WasmHost,
-    KS: SafeKeyspace,
-{
-    if rk.base().contains(&PRIVATE_FLAG_KEY) {
-        log!(Info, "Submitting outbox message to make the rollup public.");
-        let whitelist_update: OutboxMessage<_> =
-            OutboxMessage::<MichelsonUnit>::WhitelistUpdate(
-                OutboxMessageWhitelistUpdate { whitelist: None },
-            );
-        OUTBOX_QUEUE.queue_message(rk.host_mut(), whitelist_update)?;
-        OUTBOX_QUEUE.flush_queue(rk.host_mut());
-        rk.base_mut().delete(&PRIVATE_FLAG_KEY);
-    }
-    Ok(())
-}
-
 #[trace_kernel]
 pub fn stage_zero<Host, KS>(
     rk: &mut RuntimeKeyspaces<Host, KS>,
@@ -117,7 +93,6 @@ where
 {
     log!(Debug, "Entering stage zero.");
     init_storage_versioning(rk)?;
-    switch_to_public_rollup(rk)?;
     storage_migration(rk.host_mut())
 }
 
