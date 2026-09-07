@@ -34,13 +34,17 @@ let commit_of = function
 let name_of = function
   | Latest -> None
   | Previewnet -> Some "previewnet-0.5"
-  | Mainnet -> Some "farfadet-r6"
+  | Mainnet -> Some "ganesha-r1"
 
 let upgrade_to = function
   | Latest -> Latest
   | Mainnet -> Latest
   | Previewnet -> Latest
 
+(* Ganesha-r1 does support the DAL, but enabling it here registers a second,
+   DAL-enabled variant of every Etherlink test against the Mainnet kernel.
+   Left off until that CI cost is deliberately taken; flipping it is
+   test-registration only. *)
 let supports_dal = function
   | Mainnet -> false
   | Previewnet -> true
@@ -52,7 +56,7 @@ let supports_dal = function
    value for a network when that network's kernel is rebaked; treat this as
    the single source of truth when picking storage-version-gated paths in
    tezt. *)
-let storage_version = function Latest -> 65 | Previewnet -> 60 | Mainnet -> 47
+let storage_version = function Latest -> 65 | Previewnet -> 60 | Mainnet -> 65
 
 let of_tag tag =
   let contain_exp ~exp =
