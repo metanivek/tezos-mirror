@@ -215,9 +215,11 @@ module Params = struct
       ~name:"kernel-id"
       ~desc:
         "Either a root hash of the kernel to download, or the name of a \
-         supported kernel (\"bifrost\", \"calypso\", \"calypso2\", \
-         \"dionysus\", \"dionysus-r1\", \"ebisu\", \"farfadet\", \
-         \"farfadet-r1\" or \"farfadet-r2\")."
+         supported kernel (\"mainnet-beta\", \"mainnet-gamma\", \"bifrost\", \
+         \"calypso\", \"calypso2\", \"dionysus\", \"dionysus-r1\", \"ebisu\", \
+         \"farfadet\", \"farfadet-r1\", \"farfadet-r2\", \"farfadet-r3\", \
+         \"farfadet-r4\", \"farfadet-r5\", \"farfadet-r6\", \"ganesha\" or \
+         \"ganesha-r1\")."
       (parameter (fun _ str ->
            let open Evm_node_lib_dev.Constants in
            let open Lwt_result_syntax in
@@ -617,7 +619,9 @@ let kernel_compat_arg =
       "Generate a configuration compatible with the specified kernel version. \
        Supported values: mainnet-beta, mainnet-gamma, bifrost, calypso, \
        calypso2, dionysus, dionysus-r1, ebisu, farfadet, farfadet-r1, \
-       farfadet-r2, latest."
+       farfadet-r2, farfadet-r3, farfadet-r4, farfadet-r5, farfadet-r6, \
+       ganesha, ganesha-r1, previewnet-0.2, previewnet-0.4, previewnet-0.5, \
+       previewnet-0.6, latest."
   @@ Tezos_clic.parameter (fun _ kernel_name ->
          match Evm_node_lib_dev.Constants.kernel_from_string kernel_name with
          | Some kernel -> Lwt.return_ok kernel

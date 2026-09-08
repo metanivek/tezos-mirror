@@ -33,14 +33,18 @@ let commit_of = function
 
 let name_of = function
   | Latest -> None
-  | Previewnet -> Some "previewnet-0.5"
-  | Mainnet -> Some "farfadet-r6"
+  | Previewnet -> Some "previewnet-0.6"
+  | Mainnet -> Some "ganesha-r1"
 
 let upgrade_to = function
   | Latest -> Latest
   | Mainnet -> Latest
   | Previewnet -> Latest
 
+(* Ganesha-r1 does support the DAL, but enabling it here registers a second,
+   DAL-enabled variant of every Etherlink test against the Mainnet kernel.
+   Left off until that CI cost is deliberately taken; flipping it is
+   test-registration only. *)
 let supports_dal = function
   | Mainnet -> false
   | Previewnet -> true
@@ -52,7 +56,7 @@ let supports_dal = function
    value for a network when that network's kernel is rebaked; treat this as
    the single source of truth when picking storage-version-gated paths in
    tezt. *)
-let storage_version = function Latest -> 65 | Previewnet -> 60 | Mainnet -> 47
+let storage_version = function Latest -> 65 | Previewnet -> 60 | Mainnet -> 65
 
 let of_tag tag =
   let contain_exp ~exp =
@@ -68,11 +72,12 @@ let of_tag tag =
 
 (* Select the appropriate EVM version for the specified kernel.
 
-   NOTE: This function must be updated when Mainnet kernels start
-   supporting configurable (overridable) EVM versions. *)
+   Mainnet now honours an explicitly requested version: ganesha-r1 ships
+   storage version 65, the same generation as Latest, and [kernel_config]
+   emits the evm_version slot for it. Previewnet keeps the default until
+   someone checks that its kernel reads that slot. *)
 let select_evm_version ?evm_version kernel =
   match (evm_version, kernel) with
-  | _, Mainnet -> Evm_version.Osaka
+  | Some v, (Latest | Mainnet) -> v
+  | None, (Latest | Mainnet) -> Evm_version.Osaka
   | _, Previewnet -> Evm_version.Osaka
-  | None, Latest -> Evm_version.Osaka
-  | Some v, Latest -> v
