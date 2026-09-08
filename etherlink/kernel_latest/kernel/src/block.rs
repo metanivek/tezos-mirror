@@ -295,8 +295,10 @@ where
     KS: SafeKeyspace,
 {
     log!(Debug, "Next blueprint number: {:?}", next_bip_number);
-    let (blueprint, size) =
-        read_blueprint(rk, config, next_bip_number, timestamp, chain_header)?;
+    let (blueprint, size) = {
+        let (host, base) = rk.base_parts_mut();
+        read_blueprint(host, base, config, next_bip_number, timestamp, chain_header)?
+    };
     log!(Benchmarking, "Size of blueprint: {}", size);
     match blueprint {
         Some(blueprint) => {
@@ -422,34 +424,36 @@ where
     Ok(())
 }
 
-pub fn health_check<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+pub fn health_check<Host>(
+    host: &mut Host,
+    base: &mut impl SafeKeyspace,
     config: &mut Configuration,
 ) -> Result<(), anyhow::Error>
 where
-    Host: WasmHost + KeyspaceHost<KS>,
-    KS: SafeKeyspace,
+    Host: StorageV1 + WasmHost,
 {
-    if rk.host().last_run_aborted()? {
+    if host.last_run_aborted()? {
         log!(Error, "Something went wrong during previous kernel_run");
 
-        if !inside_stage_one(rk.base()) {
+        if !inside_stage_one(base) {
             // Something went wrong outside stage one, leading us to assume this is most certainly
             // related to stage 2. We clean-up potential leftovers of the interrupted execution.
 
-            allow_path_not_found(rk.host_mut().store_delete(&TMP_PATH))?;
-            allow_path_not_found(rk.host_mut().store_delete(&EVM_BLOCK_IN_PROGRESS))?;
+            allow_path_not_found(host.store_delete(&TMP_PATH))?;
+            allow_path_not_found(host.store_delete(&EVM_BLOCK_IN_PROGRESS))?;
 
             let (number, previous_timestamp, ref previous_chain_header) =
-                get_next_bip_info(rk.base());
+                get_next_bip_info(base);
 
-            match read_blueprint(
-                rk,
+            let blueprint = read_blueprint(
+                host,
+                base,
                 config,
                 number,
                 previous_timestamp,
                 previous_chain_header,
-            )? {
+            )?;
+            match blueprint {
                 (Some(blueprint), _) if blueprint.transactions.len() == 1 => {
                     // Blueprints with one transaction can be treated as certificates that given
                     // transactions indeed trigger WASM traps. If said transaction is part of the
@@ -476,16 +480,16 @@ where
                             .collect();
 
                         for hash in potential_culprits {
-                            delayed_inbox.delete(rk.base_mut(), Hash(hash))?;
+                            delayed_inbox.delete(base, Hash(hash))?;
                             Event::DroppedDelayedTransaction(hash)
-                                .store(rk.base_mut(), &config.common)?;
+                                .store(base, &config.common)?;
                         }
                     }
                 }
                 _ => (),
             }
 
-            drop_blueprint(rk.base_mut(), number)?;
+            drop_blueprint(base, number)?;
         }
 
         return Ok(());
@@ -1257,7 +1261,8 @@ mod tests {
             .store_write(&crate::storage::ENABLE_TEZOS_RUNTIME, &[], 0)
             .expect("Should have written feature flag");
         init_safe_storage_roots(rk.host_mut());
-        let experimental_features = ExperimentalFeatures::read_from_storage(rk);
+        let experimental_features =
+            ExperimentalFeatures::read_from_storage(rk.host(), rk.base());
         let debug_features = DebugFeatures::read_from_storage(rk.base());
         TezosXChainConfig::create_config(
             DUMMY_CHAIN_ID,

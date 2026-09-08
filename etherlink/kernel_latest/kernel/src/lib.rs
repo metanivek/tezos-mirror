@@ -84,16 +84,16 @@ extern crate alloc;
 const KERNEL_VERSION: &str = env!("GIT_HASH");
 
 #[trace_kernel]
-pub fn stage_zero<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+pub fn stage_zero<Host>(
+    host: &mut Host,
+    base: &mut impl KeySpace,
 ) -> Result<MigrationStatus, Error>
 where
     Host: StorageV1 + WasmHost,
-    KS: SafeKeyspace,
 {
     log!(Debug, "Entering stage zero.");
-    init_storage_versioning(rk)?;
-    storage_migration(rk.host_mut())
+    init_storage_versioning(host, base)?;
+    storage_migration(host)
 }
 
 // DO NOT RENAME: function name is used during benchmark
@@ -133,26 +133,23 @@ fn set_kernel_version(base: &mut impl KeySpace) -> Result<(), Error> {
     }
 }
 
-fn init_storage_versioning<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
-) -> Result<(), Error>
-where
-    Host: StorageV1,
-    KS: SafeKeyspace,
-{
+fn init_storage_versioning(
+    host: &mut impl StorageV1,
+    base: &mut impl KeySpace,
+) -> Result<(), Error> {
     // Reconcile the storage version into the `/base` keyspace once, at stage
     // zero: this is the only place that reads the legacy /evm/ path.
     use crate::storage::{LEGACY_STORAGE_VERSION_PATH, STORAGE_VERSION_KEY};
-    if rk.base().contains(&STORAGE_VERSION_KEY) {
+    if base.contains(&STORAGE_VERSION_KEY) {
         Ok(())
-    } else if let Ok(version) = rk.host().store_read_all(&LEGACY_STORAGE_VERSION_PATH) {
+    } else if let Ok(version) = host.store_read_all(&LEGACY_STORAGE_VERSION_PATH) {
         // Upgrading from the pre-`/base` layout: carry the recorded version
         // over verbatim so the migration framework still resumes from it.
-        rk.base_mut().set(&STORAGE_VERSION_KEY, version)?;
-        let _ = rk.host_mut().store_delete(&LEGACY_STORAGE_VERSION_PATH);
+        base.set(&STORAGE_VERSION_KEY, version)?;
+        let _ = host.store_delete(&LEGACY_STORAGE_VERSION_PATH);
         Ok(())
     } else {
-        store_storage_version(rk.base_mut(), STORAGE_VERSION)
+        store_storage_version(base, STORAGE_VERSION)
     }
 }
 
@@ -270,7 +267,8 @@ where
     KS: SafeKeyspace,
 {
     // We always start by doing the migration if needed.
-    match stage_zero(rk) {
+    let (host, base) = rk.base_parts_mut();
+    match stage_zero(host, base) {
         Ok(MigrationStatus::None) => {
             // No migration in progress. However as we want to have the kernel
             // version written in the storage, we check for its existence
@@ -288,7 +286,7 @@ where
             // If a migration was finished, we update the kernel version
             // in the storage.
             set_kernel_version(rk.base_mut())?;
-            let configuration = fetch_configuration(rk);
+            let configuration = fetch_configuration(rk.host(), rk.base());
             log!(Info, "Configuration after migration: {}", configuration);
             return Ok(SingleRunStatus::Reboot);
         }
@@ -316,14 +314,18 @@ where
     let smart_rollup_address = rk.host_mut().reveal_metadata().raw_rollup_address;
     // 2. Fetch the per mode configuration of the kernel. Returns the default
     //    configuration if it fails.
-    let chain_configuration = fetch_tezosx_configuration(rk);
-    let mut configuration = fetch_configuration(rk);
+    let chain_configuration = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
+    let mut configuration = fetch_configuration(rk.host(), rk.base());
     let sequencer_pool_address = read_sequencer_pool_address(rk.host());
 
     // Performing health check to recover from a potentially corrupted durable storage. We do it
     // before the stage one because stage one reboots and would clear the flag.
     if !configuration.common.evm_node_flag {
-        health_check(rk, &mut configuration)?;
+        let (host, base) = rk.base_parts_mut();
+        health_check(host, base, &mut configuration)?;
     }
 
     // Initialize custom precompile

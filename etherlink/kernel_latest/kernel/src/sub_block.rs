@@ -215,7 +215,10 @@ where
     ];
     __trace_kernel_add_attrs!(__attrs);
 
-    let config = fetch_tezosx_configuration(rk);
+    let config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     let block_constants = block_constants(
         rk.host_mut(),
         &config,
@@ -355,7 +358,10 @@ where
     ];
     __trace_kernel_add_attrs!(__attrs);
 
-    let config = fetch_tezosx_configuration(rk);
+    let config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
     let block_constants = block_constants(
         rk.host_mut(),
         &config,
@@ -363,7 +369,7 @@ where
         input_data.block_number,
     )?;
 
-    let mut configuration = fetch_configuration(rk);
+    let mut configuration = fetch_configuration(rk.host(), rk.base());
     let mut safe_rk = rk.to_safe_host(config.world_states(input_data.block_number));
     let outbox_queue = OutboxQueue::new(&WITHDRAWAL_OUTBOX_QUEUE, u32::MAX)?;
     let block_in_progress = crate::storage::read_block_in_progress(safe_rk.host())?

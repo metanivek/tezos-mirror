@@ -527,8 +527,10 @@ mod tests {
         .expect("fetch failed");
 
         // The dummy chunk in the inbox is registered at block 10
+        let (host, base) = rk.base_parts_mut();
         if read_blueprint(
-            &mut rk,
+            host,
+            base,
             &conf,
             U256::from(10),
             Timestamp::from(0),
@@ -1158,8 +1160,8 @@ mod tests {
         // storage contains no sequencer public key.
         use crate::configuration::fetch_configuration;
 
-        let mut rk = RuntimeKeyspaces::default();
-        let conf = fetch_configuration(&mut rk);
+        let rk = RuntimeKeyspaces::default();
+        let conf = fetch_configuration(rk.host(), rk.base());
         assert!(
             matches!(conf.mode, ConfigurationMode::Proxy),
             "fetch_configuration should return Proxy when no sequencer key is stored"

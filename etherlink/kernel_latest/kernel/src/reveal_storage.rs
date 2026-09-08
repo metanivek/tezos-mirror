@@ -113,8 +113,11 @@ pub fn reveal_storage<Host, KS>(
 
     log!(Info, "Done revealing");
 
-    let chain_config = fetch_tezosx_configuration(rk);
-    let configuration = fetch_configuration(rk);
+    let chain_config = {
+        let (host, base) = rk.base_parts_mut();
+        fetch_tezosx_configuration(host, base)
+    };
+    let configuration = fetch_configuration(rk.host(), rk.base());
     log!(Info, "Chain Configuration {chain_config:?}");
     log!(Info, "Configuration {}", configuration);
 }
