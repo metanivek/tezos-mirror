@@ -3371,12 +3371,12 @@ pub(crate) mod mock {
     /// Mock execution context for testing enshrined contracts.
     /// Implements CtxTrait and HasHost with configurable values.
     ///
-    /// Lifetimes are decoupled (host/journal/registry independently) so
+    /// Lifetimes are decoupled (handle/journal/registry independently) so
     /// tests can construct `MockCtx` from a long-lived host and shorter-
     /// lived journal/registry locals without forcing the borrow checker
     /// to unify them under a single `'a`.
-    pub struct MockCtx<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> {
-        pub rk: &'h mut RuntimeKeyspaces<Host, KS>,
+    pub struct MockCtx<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> {
+        pub rk: &'rk mut RuntimeKeyspaces<Host, KS>,
         pub journal: &'j mut tezosx_journal::TezosXJournal,
         pub registry: &'r R,
         pub sender: AddressHash,
@@ -3394,9 +3394,9 @@ pub(crate) mod mock {
         pub address_registry: HashMap<AddressHash, BigUint>,
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> MockCtx<'h, 'j, 'r, Host, KS, R> {
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> MockCtx<'rk, 'j, 'r, Host, KS, R> {
         pub fn new(
-            rk: &'h mut RuntimeKeyspaces<Host, KS>,
+            rk: &'rk mut RuntimeKeyspaces<Host, KS>,
             journal: &'j mut tezosx_journal::TezosXJournal,
             registry: &'r R,
             sender: AddressHash,
@@ -3429,8 +3429,8 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasCracChainDepth
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasCracChainDepth
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn crac_chain_depth(&self) -> u32 {
             self.crac_chain_depth
@@ -3441,8 +3441,8 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasDelegatedStorageCost
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasDelegatedStorageCost
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn delegated_storage_cost(&self) -> u64 {
             self.delegated_storage_cost
@@ -3453,16 +3453,16 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasJournal
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasJournal
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn journal(&mut self) -> &mut tezosx_journal::TezosXJournal {
             self.journal
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasRegistry
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasRegistry
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         type R = R;
         fn registry(&self) -> &Self::R {
@@ -3470,8 +3470,8 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasCrossRuntime<Host, KS>
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasCrossRuntime<Host, KS>
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn cross_runtime_split(
             &mut self,
@@ -3484,8 +3484,8 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasOriginLookup
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasOriginLookup
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn read_origin_for_address(
             &self,
@@ -3496,40 +3496,40 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasHost<Host>
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasHost<Host>
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn host(&mut self) -> &mut Host {
             self.rk.host_mut()
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasContractAccount
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasContractAccount
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn contract_account(&self) -> &TezosOriginatedAccount {
             &self.contract_account
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasOperationGas
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasOperationGas
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn operation_gas(&mut self) -> &mut crate::gas::TezlinkOperationGas {
             &mut self.operation_gas
         }
     }
 
-    impl<'h, 'j, 'r, Host: StorageV1, KS, R: Registry> HasSourcePublicKey
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> HasSourcePublicKey
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn source_public_key(&self) -> &[u8] {
             &[]
         }
     }
 
-    impl<'a, 'h, 'j, 'r, Host: StorageV1, KS, R: Registry> TypecheckingCtx<'a>
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'a, 'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> TypecheckingCtx<'a>
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn gas(&mut self) -> &mut mir::gas::Gas {
             &mut self.operation_gas.remaining
@@ -3550,8 +3550,8 @@ pub(crate) mod mock {
         }
     }
 
-    impl<'a, 'h, 'j, 'r, Host: StorageV1, KS, R: Registry> CtxTrait<'a>
-        for MockCtx<'h, 'j, 'r, Host, KS, R>
+    impl<'a, 'rk, 'j, 'r, Host: StorageV1, KS, R: Registry> CtxTrait<'a>
+        for MockCtx<'rk, 'j, 'r, Host, KS, R>
     {
         fn sender(&self) -> AddressHash {
             self.sender.clone()

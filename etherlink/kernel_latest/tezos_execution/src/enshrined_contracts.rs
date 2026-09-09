@@ -5634,11 +5634,11 @@ pub(crate) mod tests {
     /// Build a minimal `MockCtx` with a generously-sized operation-gas
     /// counter so the focus of the storage-cost tests stays on the
     /// accumulator, not on gas exhaustion.
-    fn classify_test_ctx<'h, 'j, 'r>(
-        rk: &'h mut MockRuntimeKeyspaces,
+    fn classify_test_ctx<'rk, 'j, 'r>(
+        rk: &'rk mut MockRuntimeKeyspaces,
         journal: &'j mut TezosXJournal,
         registry: &'r MockRegistry,
-    ) -> MockCtx<'h, 'j, 'r, MockKernelHost, MockKeySpace, MockRegistry> {
+    ) -> MockCtx<'rk, 'j, 'r, MockKernelHost, MockKeySpace, MockRegistry> {
         let mut ctx = MockCtx::new(
             rk,
             journal,
