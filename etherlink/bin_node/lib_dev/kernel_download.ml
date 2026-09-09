@@ -82,28 +82,87 @@ let rec reveal_and_check ~preimages_endpoint ~preimages ~num_download_retries
         hash
   else return preimage
 
+(* The preimages of a kernel form a balanced tree: the content pages holding
+   the kernel itself are the leaves, and each level above them lists the hashes
+   of the level below (see [prepare_preimages] in the kernel SDK). Walking that
+   tree breadth-first therefore reaches every hash page before the first
+   content page, so the number of preimages the kernel is made of is known as
+   soon as a content page is reached: the hash pages downloaded so far, plus
+   the content pages of the last level. *)
 let download ~preimages_endpoint ~preimages ~(root_hash : Hex.t)
-    ?(num_download_retries = 1) () =
+    ?(num_download_retries = 1) ?(progress = false) () =
   let open Lwt_result_syntax in
-  let rec go retrieved_hashes =
-    match retrieved_hashes with
+  let fetch hash =
+    let* preimage =
+      reveal_and_check ~preimages_endpoint ~preimages ~num_download_retries hash
+    in
+    return (Data_encoding.Binary.of_string_exn preimages_encoding preimage)
+  in
+  let hashes_of_page hashes = List.map (fun hash -> `Hex hash) hashes in
+  (* Downloads the levels of hash pages, from the root down. Returns how many
+     pages were downloaded, together with the hashes of the last level, which
+     are the content pages. *)
+  let rec download_hash_pages ~downloaded ~level ~next_level =
+    match (level, next_level) with
+    | [], [] -> return (downloaded, [])
+    | [], _ :: _ ->
+        (download_hash_pages [@tailcall])
+          ~downloaded
+          ~level:(List.rev next_level)
+          ~next_level:[]
+    | hash :: level, _ -> (
+        let* page = fetch hash in
+        let downloaded = downloaded + 1 in
+        match page with
+        | Hashes page_hashes ->
+            (download_hash_pages [@tailcall])
+              ~downloaded
+              ~level
+              ~next_level:
+                (List.rev_append (hashes_of_page page_hashes) next_level)
+        | Contents _content -> return (downloaded, level))
+  in
+  (* Downloads the content pages of the last level, reporting each one. A page
+     of hashes is not expected here, but is walked rather than dropped so that
+     an unbalanced tree yields a complete kernel instead of a silently missing
+     one -- only the total the progress bar counts towards is then off. *)
+  let rec download_content_pages report = function
     | [] -> return_unit
     | hash :: hashes -> (
-        let* preimage =
-          reveal_and_check
-            ~preimages_endpoint
-            ~preimages
-            ~num_download_retries
-            hash
-        in
-        match
-          Data_encoding.Binary.of_string_exn preimages_encoding preimage
-        with
+        let* page = fetch hash in
+        let*! () = report 1 in
+        match page with
+        | Contents _content ->
+            (download_content_pages [@tailcall]) report hashes
         | Hashes page_hashes ->
-            (go [@tailcall])
-              (List.rev_append (List.map (fun s -> `Hex s) page_hashes) hashes)
-        | Contents _content -> (go [@tailcall]) hashes)
+            (download_content_pages [@tailcall])
+              report
+              (List.rev_append (hashes_of_page page_hashes) hashes))
   in
-  let* () = go [root_hash] in
+  let* downloaded, content_pages =
+    let listing =
+      download_hash_pages ~downloaded:0 ~level:[root_hash] ~next_level:[]
+    in
+    if progress then
+      Progress_bar.Lwt.with_background_spinner
+        ~no_tty_quiet:true
+        ~message:"Listing the preimages of the kernel"
+        listing
+    else listing
+  in
+  let* () =
+    if progress then
+      let total = downloaded + List.length content_pages in
+      Progress_bar.Lwt.with_reporter
+        (Progress_bar.progress_bar
+           ~update_interval:0.5
+           ~message:"Downloading kernel"
+           ~counter:`Int
+           total)
+        (fun report ->
+          let*! () = report downloaded in
+          download_content_pages report content_pages)
+    else download_content_pages (fun _ -> Lwt.return_unit) content_pages
+  in
   let*! () = Events.predownload_kernel root_hash in
   return_unit
