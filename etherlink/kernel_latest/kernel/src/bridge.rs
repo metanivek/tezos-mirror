@@ -482,7 +482,7 @@ fn build_deposit_event(
 #[allow(clippy::too_many_arguments)]
 #[trace_kernel]
 pub fn apply_tezosx_xtz_deposit<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     deposit: &Deposit,
     block_constants: &BlockConstants,

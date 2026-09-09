@@ -33,7 +33,7 @@ impl Registry for RegistryImpl {
 
     fn ensure_alias<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias_info: tezosx_interfaces::AliasInfo,
         native_public_key: Option<&[u8]>,
@@ -87,7 +87,7 @@ impl Registry for RegistryImpl {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         target_runtime: tezosx_interfaces::RuntimeId,
         alias: &str,
@@ -137,7 +137,7 @@ impl Registry for RegistryImpl {
 
     fn read_origin<Host, KS>(
         &self,
-        rk: &RuntimeKeyspaces<Host, KS>,
+        rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr_runtime: tezosx_interfaces::RuntimeId,
         addr: &str,
         budget: tezosx_interfaces::Gas,
@@ -161,7 +161,7 @@ impl Registry for RegistryImpl {
 
     fn serve<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>

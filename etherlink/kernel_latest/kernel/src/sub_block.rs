@@ -187,7 +187,7 @@ where
 
 #[trace_kernel]
 pub fn handle_run_transaction<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     input_data: SingleTxExecutionInput,
 ) -> Result<(), anyhow::Error>
 where
@@ -347,7 +347,7 @@ fn read_current_block_hash(host: &impl StorageV1) -> Result<H256, Error> {
 
 #[trace_kernel]
 pub fn assemble_block<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     input_data: AssembleBlockInput,
 ) -> Result<(), anyhow::Error>
 where

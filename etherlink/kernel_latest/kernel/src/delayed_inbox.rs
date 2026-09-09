@@ -212,7 +212,7 @@ impl DelayedInbox {
 
     pub fn save_transaction<Host, KS>(
         &mut self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         tx: TezosXTransaction,
         timestamp: Timestamp,
         level: u32,

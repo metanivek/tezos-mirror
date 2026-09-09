@@ -853,7 +853,7 @@ impl<'a, Host: KeyspaceHost<KS>, KS: SafeKeyspace, R: Registry>
         // Distinct-field split borrows on `self`: `tc_ctx.rk`,
         // `tc_ctx.operation_gas`, `journal`, `registry`. The dispatcher
         // consumes them for the call only.
-        let rk: &mut RuntimeKeyspaces<Host, KS> = &mut *self.tc_ctx.rk;
+        let rk: &mut RuntimeKeyspaces<'_, Host, KS> = &mut *self.tc_ctx.rk;
         let operation_gas: &mut crate::gas::TezlinkOperationGas =
             self.tc_ctx.operation_gas;
         let crac_chain_depth = self.operation_ctx.crac_chain_depth;

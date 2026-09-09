@@ -2003,7 +2003,7 @@ impl From<ScriptError<'_>> for RunCodeError {
 /// `interpret` *delete* that big map. Nothing in this crate enforces
 /// this; `tezosx_run_code_fn` does, with a reverted `SafeStorage`.
 pub fn run_code<Host, KS, R>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     journal: &mut TezosXJournal,
     params: &RunCodeParams,
@@ -2866,7 +2866,7 @@ fn frame_abort(err: tezos_evm_runtime::snapshot::SnapshotError) -> OperationErro
 
 #[allow(clippy::too_many_arguments)]
 pub fn validate_and_apply_operation<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     journal: &mut TezosXJournal,
     operation: Operation,
@@ -3072,7 +3072,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn apply_batch<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     journal: &mut TezosXJournal,
     validation_info: validate::ValidatedBatch,
@@ -3156,7 +3156,7 @@ fn log_on_operation_failure<T, E: std::fmt::Debug>(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_operation<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     journal: &mut TezosXJournal,
     source_account: &TezosImplicitAccount,
@@ -11902,7 +11902,7 @@ mod tests {
         // and gas limit. Reads the counter from durable storage each time
         // so it stays in sync even if an operation is rejected during
         // validation.
-        let run = |rk: &mut MockRuntimeKeyspaces,
+        let run = |rk: &mut MockRuntimeKeyspaces<'_>,
                    content: Vec<OperationContent>,
                    gas_limit: u64|
          -> Vec<ProcessedOperation> {
@@ -13376,7 +13376,7 @@ mod tests {
             &0_u64.into(),
         );
 
-        let call = |rk: &mut MockRuntimeKeyspaces, counter: u64, arg: &str| {
+        let call = |rk: &mut MockRuntimeKeyspaces<'_>, counter: u64, arg: &str| {
             let value = mir::parser::Parser::new()
                 .parse(arg)
                 .unwrap()

@@ -991,7 +991,7 @@ impl<
 }
 
 pub fn commit_evm_journal_from_external<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     block_constants: &BlockConstants,
     journal: &mut TezosXJournal,

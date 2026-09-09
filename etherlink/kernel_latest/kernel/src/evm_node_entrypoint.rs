@@ -567,7 +567,7 @@ where
 /// load, so no second one is nested inside this query.
 #[allow(dead_code)]
 pub fn tezosx_michelson_entrypoints_fn<Host, R, KS>(
-    rk: &mut RuntimeKeyspaces<KernelHost<R, Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, KernelHost<R, Host>, KS>,
 ) where
     R: StorageV1,
     Host: std::borrow::BorrowMut<R> + std::borrow::Borrow<R>,
@@ -776,7 +776,7 @@ fn run_code_params(
 /// Decode and validate the input, build the block environment, and run
 /// the script.
 fn run_code_from_input<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     payload: &[u8],
 ) -> Result<tezos_execution::RunCodeOutput, tezos_execution::RunCodeError>
 where
@@ -894,7 +894,7 @@ where
 ///
 /// Input: binary-encoded contract AddressHash (22 bytes).
 fn handle_query_entrypoints_to<Host, R, KS>(
-    rk: &mut RuntimeKeyspaces<KernelHost<R, Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, KernelHost<R, Host>, KS>,
     payload: &[u8],
     result_key: &Key,
 ) where

@@ -109,7 +109,7 @@ pub fn read_kernel_upgrade(
 }
 
 pub fn upgrade<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     root_hash: [u8; PREIMAGE_HASH_SIZE],
 ) -> anyhow::Result<()>
 where
@@ -189,7 +189,7 @@ impl Encodable for SequencerUpgrade {
 }
 
 pub fn store_sequencer_upgrade<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     sequencer_upgrade: SequencerUpgrade,
     common: &CommonConfig,
 ) -> anyhow::Result<()>
@@ -249,7 +249,7 @@ where
 }
 
 pub fn possible_sequencer_upgrade<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> anyhow::Result<()>
 where
     Host: StorageV1,
@@ -297,7 +297,7 @@ where
 }
 
 pub fn possible_sequencer_key_change<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     evm_timestamp: Timestamp,
 ) -> anyhow::Result<()>
 where

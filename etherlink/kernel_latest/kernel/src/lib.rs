@@ -102,7 +102,7 @@ where
 #[trace_kernel]
 #[cfg_attr(feature = "benchmark", inline(never))]
 pub fn stage_one<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     chain_config: &chains::TezosXChainConfig,
     configuration: &mut Configuration,
@@ -219,7 +219,7 @@ where
     Ok(block_fees)
 }
 
-pub fn run<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> Result<(), anyhow::Error>
+pub fn run<Host, KS>(rk: &mut RuntimeKeyspaces<'_, Host, KS>) -> Result<(), anyhow::Error>
 where
     Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -260,7 +260,7 @@ pub enum SingleRunStatus {
 }
 
 pub fn single_run<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> Result<SingleRunStatus, anyhow::Error>
 where
     Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,

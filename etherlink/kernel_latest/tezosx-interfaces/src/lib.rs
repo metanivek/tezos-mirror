@@ -85,7 +85,7 @@ pub trait Registry {
     #[allow(clippy::too_many_arguments)]
     fn ensure_alias<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         alias_info: AliasInfo,
         native_public_key: Option<&[u8]>,
@@ -99,7 +99,7 @@ pub trait Registry {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         target_runtime: RuntimeId,
         alias: &str,
@@ -137,7 +137,7 @@ pub trait Registry {
     /// returns `Err(OutOfGas)`.
     fn read_origin<Host, KS>(
         &self,
-        rk: &RuntimeKeyspaces<Host, KS>,
+        rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr_runtime: RuntimeId,
         addr: &str,
         budget: Gas,
@@ -149,7 +149,7 @@ pub trait Registry {
     /// Route an HTTP request to the appropriate runtime based on the URL host.
     fn serve<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -167,7 +167,7 @@ pub trait RuntimeInterface {
     fn create_alias<Host, KS>(
         &self,
         registry: &impl Registry<Journal = Self::Journal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         alias: &str,
         alias_info: AliasInfo,
@@ -181,7 +181,7 @@ pub trait RuntimeInterface {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         alias: &str,
     ) -> Result<bool, TezosXRuntimeError>
@@ -204,7 +204,7 @@ pub trait RuntimeInterface {
     fn serve<Host, KS>(
         &self,
         registry: &impl Registry<Journal = Self::Journal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -238,7 +238,7 @@ pub trait RuntimeInterface {
     /// returns `Unknown` after charging `ALIAS_LOOKUP_COST`.
     fn read_origin<Host, KS>(
         &self,
-        rk: &RuntimeKeyspaces<Host, KS>,
+        rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr: &str,
         budget: Gas,
     ) -> Result<(Classification, Gas /* consumed */), TezosXRuntimeError>

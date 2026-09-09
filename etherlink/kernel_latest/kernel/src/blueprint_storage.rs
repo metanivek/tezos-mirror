@@ -885,7 +885,7 @@ pub fn read_blueprint(
 
 #[cfg(test)]
 pub fn read_next_blueprint<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     config: &mut Configuration,
 ) -> anyhow::Result<(Option<Blueprint>, usize)>
 where

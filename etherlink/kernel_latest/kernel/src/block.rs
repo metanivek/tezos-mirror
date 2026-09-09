@@ -109,7 +109,7 @@ pub fn can_fit_in_reboot(
 
 #[allow(clippy::too_many_arguments)]
 pub fn compute<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     chain_config: &TezosXChainConfig,
     outbox_queue: &OutboxQueue<'_, impl Path>,
@@ -282,7 +282,7 @@ fn get_next_bip_info(base: &impl KeySpace) -> (U256, Timestamp, EVMBlockHeader) 
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "benchmark", inline(never))]
 fn build_next_bip_from_blueprints<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     chain_config: &TezosXChainConfig,
     next_bip_number: U256,
     timestamp: Timestamp,
@@ -333,7 +333,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 pub fn compute_bip<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     chain_config: &TezosXChainConfig,
     outbox_queue: &OutboxQueue<'_, impl Path>,
@@ -393,7 +393,7 @@ where
 }
 
 fn revert_block<Host, KS>(
-    rk: &mut RuntimeKeyspaces<SafeStorage<&mut Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, SafeStorage<&mut Host>, KS>,
     block_in_progress_provenance: &BlockInProgressProvenance,
     number: U256,
     error: anyhow::Error,
@@ -511,7 +511,7 @@ fn clean_delayed_transactions(
 
 #[allow(clippy::too_many_arguments)]
 pub fn promote_block<Host, KS>(
-    rk: &mut RuntimeKeyspaces<SafeStorage<&mut Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, SafeStorage<&mut Host>, KS>,
     outbox_queue: &OutboxQueue<'_, impl Path>,
     block_in_progress_provenance: &BlockInProgressProvenance,
     block_header: BlockHeader<ChainHeader>,
@@ -555,7 +555,7 @@ where
 #[trace_kernel("stage_two")]
 #[allow(clippy::too_many_arguments)]
 pub fn produce<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     chain_config: &TezosXChainConfig,
     config: &mut Configuration,
     sequencer_pool_address: Option<H160>,
@@ -1209,8 +1209,9 @@ mod tests {
         Ok(())
     }
 
-    fn produce_block_with_several_valid_txs<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>)
-    where
+    fn produce_block_with_several_valid_txs<Host, KS>(
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
+    ) where
         Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,
         KS: SafeKeyspace,
     {
@@ -1258,7 +1259,7 @@ mod tests {
     }
 
     fn dummy_tezosx_config_with_tezos_runtime<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     ) -> TezosXChainConfig
     where
         Host: StorageV1 + KeySpaceLoader,
@@ -2455,7 +2456,9 @@ mod tests {
         assert_eq!(sender_balance, expected_sender_balance, "sender balance");
     }
 
-    fn first_block<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> TezosXBlockConstants
+    fn first_block<Host, KS>(
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
+    ) -> TezosXBlockConstants
     where
         Host: StorageV1 + KeySpaceLoader,
         KS: SafeKeyspace,

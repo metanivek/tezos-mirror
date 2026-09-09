@@ -86,7 +86,7 @@ where
     type Inbox;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         inbox_content: &mut Self::Inbox,
         common: &CommonConfig,
@@ -96,7 +96,7 @@ where
         KS: SafeKeyspace;
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -107,7 +107,7 @@ where
         KS: SafeKeyspace;
 
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -124,7 +124,7 @@ impl InputHandler for ProxyInput {
     type Inbox = ProxyInboxContent;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         inbox_content: &mut Self::Inbox,
         _common_config: &CommonConfig,
@@ -164,7 +164,7 @@ impl InputHandler for ProxyInput {
     }
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         _chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -182,7 +182,7 @@ impl InputHandler for ProxyInput {
 
     #[cfg_attr(feature = "benchmark", inline(never))]
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         _chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -220,7 +220,7 @@ impl InputHandler for SequencerInput {
     type Inbox = DelayedInbox;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         delayed_inbox: &mut Self::Inbox,
         common: &CommonConfig,
@@ -299,7 +299,7 @@ impl InputHandler for SequencerInput {
     }
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         _chain_id: Option<U256>,
         delayed_inbox: &mut Self::Inbox,
@@ -317,7 +317,7 @@ impl InputHandler for SequencerInput {
 
     #[cfg_attr(feature = "benchmark", inline(never))]
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         _chain_id: Option<U256>,
         delayed_inbox: &mut Self::Inbox,
@@ -415,7 +415,7 @@ fn handle_fa_deposit(
 }
 
 fn force_kernel_upgrade<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> anyhow::Result<()>
 where
     Host: StorageV1 + HostReveal + WasmHost,
@@ -440,7 +440,7 @@ where
 /// Import DAL slots based on protocol attestation information.
 /// This is called when processing DalAttestedSlots internal messages.
 fn import_dal_attested_slots<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     published_level: i32,
     slot_size: u64,
     page_size: u64,
@@ -507,7 +507,7 @@ where
 }
 
 pub fn handle_input<Host, KS, Mode>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     input: Input<Mode>,
     inbox_content: &mut Mode::Inbox,
     common: &CommonConfig,
@@ -570,7 +570,7 @@ enum ReadStatus {
 
 #[allow(clippy::too_many_arguments)]
 fn read_and_dispatch_input<Host, KS, Mode>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     common: &CommonConfig,
     parsing_context: &mut Mode::Context,
@@ -623,7 +623,7 @@ where
 }
 
 pub fn read_proxy_inbox<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     common: &CommonConfig,
     chain_configuration: &TezosXChainConfig,
@@ -690,7 +690,7 @@ pub enum StageOneStatus {
 
 #[allow(clippy::too_many_arguments)]
 pub fn read_sequencer_inbox<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     config_chain: &TezosXChainConfig,
     config_common: &CommonConfig,

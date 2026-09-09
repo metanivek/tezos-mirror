@@ -918,7 +918,7 @@ mod test {
 
             fn ensure_alias<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut TezosXJournal,
                 alias_info: AliasInfo,
                 native_public_key: Option<&[u8]>,
@@ -972,7 +972,7 @@ mod test {
 
             fn alias_exists<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut Self::Journal,
                 target_runtime: RuntimeId,
                 alias: &str,
@@ -1016,7 +1016,7 @@ mod test {
 
             fn read_origin<Host, KS>(
                 &self,
-                rk: &RuntimeKeyspaces<Host, KS>,
+                rk: &RuntimeKeyspaces<'_, Host, KS>,
                 addr_runtime: RuntimeId,
                 addr: &str,
                 budget: tezosx_interfaces::Gas,
@@ -1036,7 +1036,7 @@ mod test {
 
             fn serve<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut TezosXJournal,
                 request: http::Request<Vec<u8>>,
             ) -> http::Response<Vec<u8>>
@@ -1107,7 +1107,7 @@ mod test {
             fn create_alias<Host, KS>(
                 &self,
                 _registry: &impl RegistryTrait,
-                _rk: &mut RuntimeKeyspaces<Host, KS>,
+                _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 _alias: &str,
                 _alias_info: AliasInfo,
@@ -1123,7 +1123,7 @@ mod test {
 
             fn alias_exists<Host, KS>(
                 &self,
-                _rk: &mut RuntimeKeyspaces<Host, KS>,
+                _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 _alias: &str,
             ) -> Result<bool, TezosXRuntimeError>
@@ -1147,7 +1147,7 @@ mod test {
             fn serve<Host, KS>(
                 &self,
                 _registry: &impl RegistryTrait,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 request: http::Request<Vec<u8>>,
             ) -> http::Response<Vec<u8>>
@@ -1252,7 +1252,7 @@ mod test {
 
             fn read_origin<Host, KS>(
                 &self,
-                _rk: &RuntimeKeyspaces<Host, KS>,
+                _rk: &RuntimeKeyspaces<'_, Host, KS>,
                 _addr: &str,
                 _budget: tezosx_interfaces::Gas,
             ) -> Result<
@@ -2152,7 +2152,7 @@ mod test {
         };
 
         let registry = Registry::new();
-        let submit = |rk: &mut MockRuntimeKeyspaces, calldata: Vec<u8>| {
+        let submit = |rk: &mut MockRuntimeKeyspaces<'_>, calldata: Vec<u8>| {
             let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
             run_transaction(
                 rk,
@@ -3127,7 +3127,7 @@ mod test {
         }
 
         fn execute_fa_bridge(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             call_data: Bytes,
             gas_limit: u64,
@@ -3137,7 +3137,7 @@ mod test {
         }
 
         fn execute_fa_deposit(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             deposit: FaDepositWithProxy,
         ) -> ExecutionOutcome {
@@ -3212,7 +3212,7 @@ mod test {
         }
 
         fn execute_call(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             call_data: Bytes,
             gas_limit: u64,
@@ -3252,7 +3252,7 @@ mod test {
         }
 
         fn deploy_contract(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             calldata: Bytes,
         ) -> Address {
@@ -3986,7 +3986,7 @@ mod test {
         }
 
         fn deploy(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             bytecode_hex: &str,
         ) -> Address {
@@ -4021,7 +4021,7 @@ mod test {
         }
 
         fn call_into(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             destination: Address,
             calldata: Bytes,
@@ -4258,7 +4258,7 @@ mod test {
         /// pre-seeded `cross_runtime_originator`, mirroring an inbound
         /// Michelson → EVM CRAC frame.
         fn call_gateway_with_originator(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             originator: Address,
             calldata: Bytes,
@@ -4609,7 +4609,7 @@ mod test {
         // they differ only in the destination (`None` creates a contract)
         // and whether a tracer is attached.
         fn run(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             to: Option<Address>,
             calldata: Bytes,
@@ -4647,7 +4647,7 @@ mod test {
             outcome
         }
 
-        fn deploy(rk: &mut MockRuntimeKeyspaces, caller: Address) -> Address {
+        fn deploy(rk: &mut MockRuntimeKeyspaces<'_>, caller: Address) -> Address {
             let outcome = run(
                 rk,
                 caller,
@@ -4665,7 +4665,7 @@ mod test {
         }
 
         fn run_traced(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             destination: Address,
             calldata: Bytes,
@@ -5837,7 +5837,7 @@ mod test {
     /// operation: materialization is staged in the journal and only becomes
     /// durable at commit.
     fn materialize_alias(
-        rk: &mut MockRuntimeKeyspaces,
+        rk: &mut MockRuntimeKeyspaces<'_>,
         block_constants: &BlockConstants,
         native_address: &str,
     ) -> (Address, Registry, TezosXJournal) {

@@ -83,7 +83,7 @@ impl EthereumRuntime {
     fn materialize_alias<Host, KS>(
         &self,
         registry: &impl Registry<Journal = TezosXJournal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias: Address,
         native_address: &str,
@@ -310,7 +310,7 @@ sol! {
 fn execute_request<Host, KS>(
     runtime: &EthereumRuntime,
     registry: &impl Registry<Journal = TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecutionOutcome, TezosXRuntimeError>
@@ -382,7 +382,7 @@ fn classify_evm_run_error(context: &str, e: EvmRunError) -> TezosXRuntimeError {
 fn execute_call<Host, KS>(
     runtime: &EthereumRuntime,
     registry: &impl Registry<Journal = TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecutionOutcome, TezosXRuntimeError>
@@ -528,7 +528,7 @@ where
 fn execute_static_call<Host, KS>(
     runtime: &EthereumRuntime,
     registry: &impl Registry<Journal = TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecutionOutcome, TezosXRuntimeError>
@@ -625,7 +625,7 @@ impl RuntimeInterface for EthereumRuntime {
     fn create_alias<Host, KS>(
         &self,
         registry: &impl Registry<Journal = TezosXJournal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias: &str,
         alias_info: AliasInfo,
@@ -669,7 +669,7 @@ impl RuntimeInterface for EthereumRuntime {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias: &str,
     ) -> Result<bool, TezosXRuntimeError>
@@ -713,7 +713,7 @@ impl RuntimeInterface for EthereumRuntime {
     fn serve<Host, KS>(
         &self,
         registry: &impl Registry<Journal = TezosXJournal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -740,7 +740,7 @@ impl RuntimeInterface for EthereumRuntime {
 
     fn read_origin<Host, KS>(
         &self,
-        rk: &RuntimeKeyspaces<Host, KS>,
+        rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr: &str,
         budget: Gas,
     ) -> Result<(Classification, Gas), TezosXRuntimeError>

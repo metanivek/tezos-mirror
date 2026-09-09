@@ -30,7 +30,7 @@ use tezos_smart_rollup_host::wasm::WasmHost;
 use tezos_smart_rollup_keyspace::KeySpace;
 
 pub fn fetch_proxy_blueprints<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; RAW_ROLLUP_ADDRESS_SIZE],
     chain_configuration: &TezosXChainConfig,
     common: &CommonConfig,
@@ -111,7 +111,7 @@ fn fetch_delayed_transactions(
 }
 
 fn fetch_sequencer_blueprints<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; RAW_ROLLUP_ADDRESS_SIZE],
     config_chain: &TezosXChainConfig,
     config_common: &CommonConfig,
@@ -154,7 +154,7 @@ where
 // function is visible in the profiling results.
 #[cfg_attr(feature = "benchmark", inline(never))]
 pub fn fetch_blueprints<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; RAW_ROLLUP_ADDRESS_SIZE],
     chain_config: &crate::chains::TezosXChainConfig,
     config: &mut Configuration,
@@ -899,7 +899,7 @@ mod tests {
     }
 
     fn setup_dal_signal(
-        rk: &mut MockRuntimeKeyspaces,
+        rk: &mut MockRuntimeKeyspaces<'_>,
         conf: &mut Configuration,
         signal_slots: Option<Vec<u8>>,
         filled_slots: Option<Vec<u8>>,

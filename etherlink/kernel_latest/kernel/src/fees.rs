@@ -180,7 +180,7 @@ impl FeeUpdates {
 
     pub fn apply<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         caller: H160,
         sequencer_pool_address: Option<H160>,
     ) -> Result<(), anyhow::Error>

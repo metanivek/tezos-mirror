@@ -64,7 +64,7 @@ pub fn is_revealed_storage(base: &impl KeySpace) -> bool {
 }
 
 pub fn reveal_storage<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     sequencer: Option<PublicKey>,
     admin: Option<ContractKt1Hash>,
 ) where

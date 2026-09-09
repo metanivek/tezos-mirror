@@ -384,7 +384,7 @@ impl Evaluation {
     /// traces captured during cross-runtime execution.
     pub fn run<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
         tracer_input: Option<TracerInput>,
         spec_id: &SpecId,
@@ -720,7 +720,7 @@ impl<T: Encodable + Decodable> VersionedEncoding for SimulationResult<T, String>
 }
 
 pub fn start_simulation_mode<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     spec_id: &SpecId,
 ) -> Result<(), anyhow::Error>
@@ -827,7 +827,7 @@ mod tests {
     const STORAGE_CONTRACT_CALL_GET: &str = "6d4ce63c";
 
     #[cfg(test)]
-    fn create_contract<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> H160
+    fn create_contract<Host, KS>(rk: &mut RuntimeKeyspaces<'_, Host, KS>) -> H160
     where
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,

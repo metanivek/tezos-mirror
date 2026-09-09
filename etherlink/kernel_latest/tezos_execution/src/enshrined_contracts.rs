@@ -1440,7 +1440,7 @@ const RESOLUTION_DERIVED_NAT: u64 = 1;
 /// back-stop when it fires — is converted back to milligas and charged
 /// to `operation_gas`. Callers do not pre-charge anything.
 fn classify_origin_for_view<'a, Host, KS, R>(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     source_runtime: RuntimeId,
@@ -1484,7 +1484,7 @@ where
 /// already has an Alias record pointing back to `source_runtime` with
 /// the same `basis`; otherwise the result is `Derived`.
 fn derive_alias_for_view<'a, Host, KS, R>(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     source_runtime: RuntimeId,
@@ -1540,7 +1540,7 @@ where
 /// [`RuntimeId`]), returns `Err(InterpretError::FailedWith(...))` with
 /// the Michelson payload `(Pair "INVALID_RUNTIME_ID" received_nat)`.
 pub fn dispatch_origin_of_get<'a, Host, KS, R>(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     registry: &R,
     addr_str: &str,
@@ -1571,7 +1571,7 @@ where
 /// - Resolved target → `Some (Pair <resolution_nat> <translated_addr>)`
 ///   where `resolution_nat` is 0 (Recorded) or 1 (Derived).
 pub fn dispatch_resolve_address_get<'a, Host, KS, R>(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     registry: &R,
     addr_str: &str,
@@ -1800,7 +1800,7 @@ fn is_cross_runtime_oog(status: http::StatusCode) -> bool {
 /// budget rather than a hardcoded magic.
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch_staticcall_evm_get<'a, Host, KS, R>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     operation_gas: &mut crate::gas::TezlinkOperationGas,
     registry: &R,
     journal: &mut TezosXJournal,
@@ -2605,7 +2605,7 @@ pub(crate) mod tests {
     /// and dropped before the result returns.
     fn typecheck_call<'a>(
         value: &Micheline<'a>,
-        rk: &mut MockRuntimeKeyspaces,
+        rk: &mut MockRuntimeKeyspaces<'_>,
     ) -> Result<TypedValue<'a>, TransferError> {
         let source = AddressHash::Kt1(ContractKt1Hash::from([0u8; 20]));
         let mut journal = TezosXJournal::new(

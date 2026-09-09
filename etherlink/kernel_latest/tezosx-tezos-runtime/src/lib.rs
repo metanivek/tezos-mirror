@@ -638,7 +638,7 @@ where
 fn execute_request<Host, KS>(
     chain_id: &ChainId,
     registry: &impl Registry<Journal = TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecuteRequestOutcome, RequestFailure>
@@ -676,7 +676,7 @@ where
 fn execute_entrypoint_call<Host, KS>(
     chain_id: &ChainId,
     registry: &impl Registry<Journal = TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecuteRequestOutcome, RequestFailure>
@@ -1106,7 +1106,7 @@ impl RuntimeInterface for TezosRuntime {
     fn create_alias<Host, KS>(
         &self,
         _registry: &impl Registry<Journal = TezosXJournal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias: &str,
         alias_info: AliasInfo,
@@ -1289,7 +1289,7 @@ impl RuntimeInterface for TezosRuntime {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut Self::Journal,
         alias: &str,
     ) -> Result<bool, TezosXRuntimeError>
@@ -1325,7 +1325,7 @@ impl RuntimeInterface for TezosRuntime {
     fn serve<Host, KS>(
         &self,
         registry: &impl Registry<Journal = TezosXJournal>,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -1374,7 +1374,7 @@ impl RuntimeInterface for TezosRuntime {
 
     fn read_origin<Host, KS>(
         &self,
-        rk: &RuntimeKeyspaces<Host, KS>,
+        rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr: &str,
         budget: TezosXGas,
     ) -> Result<(Classification, TezosXGas), TezosXRuntimeError>

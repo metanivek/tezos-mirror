@@ -210,7 +210,7 @@ fn u256_to_u128(value: U256) -> u128 {
 
 #[allow(clippy::too_many_arguments)]
 fn execute_transaction(
-    rk: &mut MockRuntimeKeyspaces,
+    rk: &mut MockRuntimeKeyspaces<'_>,
     unit: &TestUnit,
     env: &mut Env,
     spec_id: SpecId,

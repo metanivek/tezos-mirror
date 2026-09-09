@@ -16,7 +16,7 @@ const BACKUP_KERNEL_BOOT_PATH_KEY: Key = Key::from_static(b"/__backup_kernel/boo
 const BACKUP_KERNEL_ROOT_HASH_KEY: Key = Key::from_static(b"/__backup_kernel/root_hash");
 
 pub fn backup_current_kernel<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> anyhow::Result<()>
 where
     Host: StorageV1,
@@ -56,7 +56,7 @@ where
 }
 
 pub fn fallback_backup_kernel<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> anyhow::Result<()>
 where
     Host: StorageV1,

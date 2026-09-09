@@ -350,7 +350,7 @@ fn dispatch_origin_of<
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     addr_str: String,
     source_runtime: RuntimeId,
@@ -420,7 +420,7 @@ fn dispatch_resolve_address<
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     addr_str: String,
     source_runtime: RuntimeId,
