@@ -163,21 +163,25 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
         Ok(())
     }
 
-    /// Wrap the host in the failsafe mirror
-    pub fn to_safe_host(
+    /// Runs `f` over the handle rewrapped in the failsafe mirror.
+    ///
+    /// The mirror covers `world_states` and lives for the call: `f` starts,
+    /// promotes or reverts it itself. `/base` and the keyspaces are the ones
+    /// of `self`.
+    pub fn with_safe_host<T>(
         &mut self,
         world_states: Vec<OwnedPath>,
-    ) -> RuntimeKeyspaces<SafeStorage<&mut Host>, &mut KS> {
-        RuntimeKeyspaces {
+        f: impl FnOnce(&mut RuntimeKeyspaces<SafeStorage<&mut Host>, &mut KS>) -> T,
+    ) -> T {
+        let mut safe_rk = RuntimeKeyspaces {
             host: SafeStorage {
                 host: &mut self.host,
                 world_states,
             },
             base: &mut self.base,
-            keyspaces: Keyspaces {
-                eth_accounts: &mut self.keyspaces.eth_accounts,
-            },
-        }
+            keyspaces: self.keyspaces.as_mut(),
+        };
+        f(&mut safe_rk)
     }
 }
 
@@ -264,6 +268,13 @@ impl<KS> Keyspaces<KS> {
     /// control means adding an entry here.
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut KS> {
         [&mut self.eth_accounts].into_iter()
+    }
+
+    /// Lends every keyspace at once, as a set.
+    fn as_mut(&mut self) -> Keyspaces<&mut KS> {
+        Keyspaces {
+            eth_accounts: &mut self.eth_accounts,
+        }
     }
 }
 

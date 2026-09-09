@@ -593,10 +593,9 @@ where
     // interrupted block leaves it under `/tmp`, so this read goes through the
     // failsafe mirror. The mirror borrows the handle and the blueprint branch
     // below works on the live host, so its borrow is scoped to the read.
-    let resumed = {
-        let safe_rk = rk.to_safe_host(world_states.clone());
-        read_block_in_progress(safe_rk.host())?
-    };
+    let resumed = rk.with_safe_host(world_states.clone(), |safe_rk| {
+        read_block_in_progress(safe_rk.host())
+    })?;
 
     let (block_in_progress_provenance, block_in_progress) = match resumed {
         Some(block_in_progress) => {
@@ -641,107 +640,114 @@ where
         }
     };
 
-    let mut safe_rk = rk.to_safe_host(world_states);
-    if let BlockInProgressProvenance::Blueprint = block_in_progress_provenance {
-        // We are going to execute a new block, we copy the storage to allow
-        // to revert if the block fails.
-        safe_rk.host_mut().start()?;
-        // Open a keyspace frame alongside the `/tmp` copy.
-        safe_rk.checkpoint()?;
-    }
+    let (result, key_change_at) =
+        rk.with_safe_host(world_states, |safe_rk| -> anyhow::Result<_> {
+            if let BlockInProgressProvenance::Blueprint = block_in_progress_provenance {
+                // We are going to execute a new block, we copy the storage to allow
+                // to revert if the block fails.
+                safe_rk.host_mut().start()?;
+                // Open a keyspace frame alongside the `/tmp` copy.
+                safe_rk.checkpoint()?;
+            }
 
-    let processed_blueprint = block_in_progress.number;
-    let computation_result = compute_bip(
-        &mut safe_rk,
-        &registry,
-        chain_config,
-        &outbox_queue,
-        block_in_progress,
-        sequencer_pool_address,
-        tracer_input,
-        da_fee_per_byte,
-        coinbase,
-        chain_header,
-        http_trace_enabled,
-    );
-
-    match computation_result {
-        Ok(BlockComputationResult::Finished {
-            included_delayed_transactions,
-            block,
-        }) => {
-            let timestamp = block.timestamp();
-            promote_block(
-                &mut safe_rk,
+            let processed_blueprint = block_in_progress.number;
+            let computation_result = compute_bip(
+                safe_rk,
+                &registry,
+                chain_config,
                 &outbox_queue,
-                &block_in_progress_provenance,
-                block.header(),
-                config,
-                included_delayed_transactions,
-            )?;
-            // Write sunrise_level only after the block has been committed, so
-            // it is atomic with the Tezos genesis block existing in storage.
-            if chain_config.is_tezos_runtime_enabled(processed_blueprint)
-                && crate::storage::read_michelson_runtime_sunrise_level(
-                    safe_rk.host().host,
-                )
-                .is_none()
-            {
-                crate::storage::store_michelson_runtime_sunrise_level(
-                    safe_rk.host_mut().host,
-                    processed_blueprint,
-                )?;
-                // L2-1526: seed the shared Michelson alias implementation
-                // when the runtime activates on a fresh network. Migrations
-                // only run on upgrades, so this is the genesis seeding point.
-                // Like the sunrise_level write above, this runs after the
-                // block has been promoted, so the slot is first reflected in
-                // the *next* block's Michelson state_root (its content is
-                // rooted under /tez/tez_accounts). It is identical across all
-                // replicas and idempotent.
-                tezosx_tezos_runtime::alias_forwarder::init_alias_implementation(
-                    safe_rk.host_mut().host,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("seeding alias implementation failed: {e}")
-                })?;
-                // Seed the address registry (null address at index 0) when
-                // the runtime activates on a fresh network. Activation is the
-                // only seeding point.
-                tezos_execution::mir_ctx::init_address_registry(safe_rk.host_mut().host)
-                    .map_err(|e| {
-                        anyhow::anyhow!("seeding address registry failed: {e}")
-                    })?;
-            }
-            // The mirror is promoted, so its `/tmp` copy is gone: the
-            // sequencer key change runs on the live host.
-            upgrade::possible_sequencer_key_change(rk, timestamp)?;
+                block_in_progress,
+                sequencer_pool_address,
+                tracer_input,
+                da_fee_per_byte,
+                coinbase,
+                chain_header,
+                http_trace_enabled,
+            );
 
-            if config.common.evm_node_flag {
-                Ok(ComputationResult::Finished)
-            } else {
-                Ok(ComputationResult::RebootNeeded)
+            match computation_result {
+                Ok(BlockComputationResult::Finished {
+                    included_delayed_transactions,
+                    block,
+                }) => {
+                    let timestamp = block.timestamp();
+                    promote_block(
+                        safe_rk,
+                        &outbox_queue,
+                        &block_in_progress_provenance,
+                        block.header(),
+                        config,
+                        included_delayed_transactions,
+                    )?;
+                    // Write sunrise_level only after the block has been committed, so
+                    // it is atomic with the Tezos genesis block existing in storage.
+                    if chain_config.is_tezos_runtime_enabled(processed_blueprint)
+                        && crate::storage::read_michelson_runtime_sunrise_level(
+                            safe_rk.host().host,
+                        )
+                        .is_none()
+                    {
+                        crate::storage::store_michelson_runtime_sunrise_level(
+                            safe_rk.host_mut().host,
+                            processed_blueprint,
+                        )?;
+                        // L2-1526: seed the shared Michelson alias implementation
+                        // when the runtime activates on a fresh network. Migrations
+                        // only run on upgrades, so this is the genesis seeding point.
+                        // Like the sunrise_level write above, this runs after the
+                        // block has been promoted, so the slot is first reflected in
+                        // the *next* block's Michelson state_root (its content is
+                        // rooted under /tez/tez_accounts). It is identical across all
+                        // replicas and idempotent.
+                        tezosx_tezos_runtime::alias_forwarder::init_alias_implementation(
+                            safe_rk.host_mut().host,
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!("seeding alias implementation failed: {e}")
+                        })?;
+                        // Seed the address registry (null address at index 0) when
+                        // the runtime activates on a fresh network. Activation is the
+                        // only seeding point.
+                        tezos_execution::mir_ctx::init_address_registry(
+                            safe_rk.host_mut().host,
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!("seeding address registry failed: {e}")
+                        })?;
+                    }
+                    let result = if config.common.evm_node_flag {
+                        ComputationResult::Finished
+                    } else {
+                        ComputationResult::RebootNeeded
+                    };
+                    Ok((result, Some(timestamp)))
+                }
+                Ok(BlockComputationResult::RebootNeeded) => {
+                    // The computation will resume at next reboot, we leave the
+                    // storage untouched.
+                    Ok((ComputationResult::RebootNeeded, None))
+                }
+                Err(err) => {
+                    revert_block(
+                        safe_rk,
+                        &block_in_progress_provenance,
+                        processed_blueprint,
+                        err,
+                    )?;
+                    // The block was reverted because it failed. We don't know at
+                    // which point did it fail nor why. We cannot make assumption
+                    // on how many ticks it consumed before failing. Therefore
+                    // the safest solution is to simply reboot after a failure.
+                    Ok((ComputationResult::RebootNeeded, None))
+                }
             }
-        }
-        Ok(BlockComputationResult::RebootNeeded) => {
-            // The computation will resume at next reboot, we leave the
-            // storage untouched.
-            Ok(ComputationResult::RebootNeeded)
-        }
-        Err(err) => {
-            revert_block(
-                &mut safe_rk,
-                &block_in_progress_provenance,
-                processed_blueprint,
-                err,
-            )?;
-            // The block was reverted because it failed. We don't know at
-            // which point did it fail nor why. We cannot make assumption
-            // on how many ticks it consumed before failing. Therefore
-            // the safest solution is to simply reboot after a failure.
-            Ok(ComputationResult::RebootNeeded)
-        }
+        })?;
+    // The mirror is promoted, so its `/tmp` copy is gone: the sequencer key
+    // change runs on the live host.
+    if let Some(timestamp) = key_change_at {
+        upgrade::possible_sequencer_key_change(rk, timestamp)?;
     }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -2931,8 +2937,10 @@ mod tests {
         matches!(computation_result, ComputationResult::RebootNeeded);
 
         // The block is in progress, therefore it is in the safe storage.
-        let safe_rk = rk.to_safe_host(chain_config.world_states(U256::zero()));
-        let bip = read_block_in_progress(safe_rk.host())
+        let bip = rk
+            .with_safe_host(chain_config.world_states(U256::zero()), |safe_rk| {
+                read_block_in_progress(safe_rk.host())
+            })
             .expect("Should be able to read the block in progress")
             .expect("The reboot context should have a block in progress");
 
@@ -3026,8 +3034,10 @@ mod tests {
         matches!(computation_result, ComputationResult::RebootNeeded);
 
         // The block is in progress, therefore it is in the safe storage.
-        let safe_rk = rk.to_safe_host(chain_config.world_states(U256::zero()));
-        let bip = read_block_in_progress(safe_rk.host())
+        let bip = rk
+            .with_safe_host(chain_config.world_states(U256::zero()), |safe_rk| {
+                read_block_in_progress(safe_rk.host())
+            })
             .expect("Should be able to read the block in progress")
             .expect("The reboot context should have a block in progress");
 

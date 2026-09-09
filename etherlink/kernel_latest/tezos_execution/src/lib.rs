@@ -2897,119 +2897,122 @@ where
         None
     };
 
-    let mut safe_rk = rk.to_safe_host(safe_roots.to_vec());
+    rk.with_safe_host(
+        safe_roots.to_vec(),
+        |safe_rk| -> Result<_, OperationError> {
+            safe_rk.host_mut().start()?;
+            // Open a keyspace frame alongside the `/tmp` copy.
+            safe_rk.checkpoint().map_err(frame_abort)?;
 
-    safe_rk.host_mut().start()?;
-    // Open a keyspace frame alongside the `/tmp` copy.
-    safe_rk.checkpoint().map_err(frame_abort)?;
+            log!(Debug, "Verifying that the batch is valid");
 
-    log!(Debug, "Verifying that the batch is valid");
+            let validation_info = match validate::execute_validation(
+                safe_rk.host_mut(),
+                operation,
+                skip_signature_check,
+                required_fees,
+            ) {
+                Ok(validation_info) => validation_info,
+                Err(validity_err) => {
+                    log!(Debug, "Reverting the changes because the batch is invalid.");
+                    safe_rk.revert_inner().map_err(frame_abort)?;
+                    safe_rk.host_mut().revert()?;
+                    return Err(OperationError::Validation(validity_err));
+                }
+            };
 
-    let validation_info = match validate::execute_validation(
-        safe_rk.host_mut(),
-        operation,
-        skip_signature_check,
-        required_fees,
-    ) {
-        Ok(validation_info) => validation_info,
-        Err(validity_err) => {
-            log!(Debug, "Reverting the changes because the batch is invalid.");
-            safe_rk.revert_inner().map_err(frame_abort)?;
-            safe_rk.host_mut().revert()?;
-            return Err(OperationError::Validation(validity_err));
-        }
-    };
+            log!(Debug, "Batch is valid!");
 
-    log!(Debug, "Batch is valid!");
+            safe_rk.commit_inner().map_err(frame_abort)?;
+            safe_rk.host_mut().promote()?;
+            // Skip trace promotion (and its store_has probe) when the tracer is off:
+            // no trace data was written, so there is nothing to move out of /tmp.
+            if block_ctx.tracing_enabled {
+                safe_rk.host_mut().promote_trace()?;
+            }
+            if block_ctx.http_trace_enabled {
+                safe_rk.host_mut().promote_http_trace()?;
+            }
+            safe_rk.host_mut().start()?;
+            // Open a new frame for the application phase.
+            safe_rk.checkpoint().map_err(frame_abort)?;
 
-    safe_rk.commit_inner().map_err(frame_abort)?;
-    safe_rk.host_mut().promote()?;
-    // Skip trace promotion (and its store_has probe) when the tracer is off:
-    // no trace data was written, so there is nothing to move out of /tmp.
-    if block_ctx.tracing_enabled {
-        safe_rk.host_mut().promote_trace()?;
-    }
-    if block_ctx.http_trace_enabled {
-        safe_rk.host_mut().promote_http_trace()?;
-    }
-    safe_rk.host_mut().start()?;
-    // Open a new frame for the application phase.
-    safe_rk.checkpoint().map_err(frame_abort)?;
+            // Each operation uses 0-based nonces; block-sequential nonces are
+            // assigned at block finalization by renumber_nonces().
+            let mut nonce_counter: u16 = 0;
+            // The origination nonce lives on the journal.
+            // Snapshot the index so the revert branch below can put it back: unlike an EVM-driven frame,
+            // this path never opens a journal frame, so `revert_frame` does not roll it back for us — and a
+            // backtracked batch must not consume indices, since on L1 the nonce dies with the reverted
+            // context.
+            let origination_index_before = journal.michelson.origination_index();
+            // We use `mut` here because apply_batch does not handle fee refund,
+            // so we append the refund balance updates to processed_ops afterwards.
+            let (mut processed_ops, applied) = apply_batch(
+                safe_rk,
+                registry,
+                journal,
+                validation_info,
+                block_ctx,
+                &mut nonce_counter,
+            )
+            .map_err(OperationError::BlockAbort)?;
 
-    // Each operation uses 0-based nonces; block-sequential nonces are
-    // assigned at block finalization by renumber_nonces().
-    let mut nonce_counter: u16 = 0;
-    // The origination nonce lives on the journal.
-    // Snapshot the index so the revert branch below can put it back: unlike an EVM-driven frame,
-    // this path never opens a journal frame, so `revert_frame` does not roll it back for us — and a
-    // backtracked batch must not consume indices, since on L1 the nonce dies with the reverted
-    // context.
-    let origination_index_before = journal.michelson.origination_index();
-    // We use `mut` here because apply_batch does not handle fee refund,
-    // so we append the refund balance updates to processed_ops afterwards.
-    let (mut processed_ops, applied) = apply_batch(
-        &mut safe_rk,
-        registry,
-        journal,
-        validation_info,
-        block_ctx,
-        &mut nonce_counter,
+            if applied {
+                log!(
+                    Debug,
+                    "Committing the changes because the batch was successfully applied."
+                );
+                safe_rk.commit_inner().map_err(frame_abort)?;
+                safe_rk.host_mut().promote()?;
+                if block_ctx.tracing_enabled {
+                    safe_rk.host_mut().promote_trace()?;
+                }
+                if block_ctx.http_trace_enabled {
+                    safe_rk.host_mut().promote_http_trace()?;
+                }
+            } else {
+                log!(
+                    Debug,
+                    "Reverting the changes because some operation failed."
+                );
+                log!(Debug, "Processed operations: {processed_ops:#?}");
+                safe_rk.revert_inner().map_err(frame_abort)?;
+                safe_rk.host_mut().revert()?;
+                // Clear the in-memory EVM journal: safe_rk.host_mut().revert() only
+                // rolls back Tezos durable storage but cannot affect the in-memory REVM
+                // JournalInner. Without this, commit_evm_journal_from_external()
+                // would persist EVM state changes from a backtracked operation.
+                journal.evm.clear();
+                // The captured cross-runtime originator now lives on the shared
+                // journal (not `evm`), so drop it here too — a backtracked
+                // operation's originator must not leak into the next one.
+                journal.reset_original_source();
+                // Give the origination-nonce indices back: none of this batch's
+                // originations survived, so none of them may consume an index.
+                journal
+                    .michelson
+                    .restore_origination_index(origination_index_before);
+            }
+
+            // Apply fee refund after all transactional work is done.
+            // This runs outside the SafeStorage transaction (after promote/revert)
+            // so that the refund applies in both cases: applied and failed operations.
+            // Uses the live host under the mirror directly, the transactional phase
+            // being complete.
+            if let Some((config, total_fees)) = fee_refund_config {
+                let fee_refund = compute_fee_refund(total_fees, &processed_ops, &config);
+                apply_fee_refund(
+                    &mut *safe_rk.host_mut().host,
+                    &mut processed_ops,
+                    fee_refund,
+                )
+                .map_err(|e| OperationError::BlockAbort(format!("Fee refund: {e}")))?;
+            }
+
+            Ok(processed_ops)
+        },
     )
-    .map_err(OperationError::BlockAbort)?;
-
-    if applied {
-        log!(
-            Debug,
-            "Committing the changes because the batch was successfully applied."
-        );
-        safe_rk.commit_inner().map_err(frame_abort)?;
-        safe_rk.host_mut().promote()?;
-        if block_ctx.tracing_enabled {
-            safe_rk.host_mut().promote_trace()?;
-        }
-        if block_ctx.http_trace_enabled {
-            safe_rk.host_mut().promote_http_trace()?;
-        }
-    } else {
-        log!(
-            Debug,
-            "Reverting the changes because some operation failed."
-        );
-        log!(Debug, "Processed operations: {processed_ops:#?}");
-        safe_rk.revert_inner().map_err(frame_abort)?;
-        safe_rk.host_mut().revert()?;
-        // Clear the in-memory EVM journal: safe_rk.host_mut().revert() only
-        // rolls back Tezos durable storage but cannot affect the in-memory REVM
-        // JournalInner. Without this, commit_evm_journal_from_external()
-        // would persist EVM state changes from a backtracked operation.
-        journal.evm.clear();
-        // The captured cross-runtime originator now lives on the shared
-        // journal (not `evm`), so drop it here too — a backtracked
-        // operation's originator must not leak into the next one.
-        journal.reset_original_source();
-        // Give the origination-nonce indices back: none of this batch's
-        // originations survived, so none of them may consume an index.
-        journal
-            .michelson
-            .restore_origination_index(origination_index_before);
-    }
-
-    // Apply fee refund after all transactional work is done.
-    // This runs outside the SafeStorage transaction (after promote/revert)
-    // so that the refund applies in both cases: applied and failed operations.
-    // Uses the live host under the mirror directly, the transactional phase
-    // being complete.
-    if let Some((config, total_fees)) = fee_refund_config {
-        let fee_refund = compute_fee_refund(total_fees, &processed_ops, &config);
-        apply_fee_refund(
-            &mut *safe_rk.host_mut().host,
-            &mut processed_ops,
-            fee_refund,
-        )
-        .map_err(|e| OperationError::BlockAbort(format!("Fee refund: {e}")))?;
-    }
-
-    Ok(processed_ops)
 }
 
 /// Credit the source with a fee refund and record balance updates in the receipt.
@@ -3554,22 +3557,25 @@ mod tests {
                 .store_write_all(&probe, b"before")
                 .expect("the probe is written");
 
-            let mut safe_rk = rk
-                .to_safe_host(vec![OwnedPath::from(crate::context::TEZOS_ACCOUNTS_ROOT)]);
-            safe_rk.host_mut().start().expect("the snapshot is taken");
-            safe_rk.checkpoint().expect("the frame is opened");
-            run_code(
-                &mut safe_rk,
-                &NotWiredRegistry,
-                &mut TezosXJournal::mock(RuntimeId::Ethereum),
-                &params(script, storage, input, None, None),
-            )
-            .expect("it runs");
-            safe_rk.revert_inner().expect("the frame is closed");
-            safe_rk
-                .host_mut()
-                .revert()
-                .expect("the snapshot is dropped");
+            rk.with_safe_host(
+                vec![OwnedPath::from(crate::context::TEZOS_ACCOUNTS_ROOT)],
+                |safe_rk| {
+                    safe_rk.host_mut().start().expect("the snapshot is taken");
+                    safe_rk.checkpoint().expect("the frame is opened");
+                    run_code(
+                        safe_rk,
+                        &NotWiredRegistry,
+                        &mut TezosXJournal::mock(RuntimeId::Ethereum),
+                        &params(script, storage, input, None, None),
+                    )
+                    .expect("it runs");
+                    safe_rk.revert_inner().expect("the frame is closed");
+                    safe_rk
+                        .host_mut()
+                        .revert()
+                        .expect("the snapshot is dropped");
+                },
+            );
 
             assert_eq!(
                 rk.host_mut()

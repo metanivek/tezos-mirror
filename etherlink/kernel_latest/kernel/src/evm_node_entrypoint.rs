@@ -847,37 +847,39 @@ where
 
     // The roots an applied Michelson operation snapshots, unnarrowed:
     // nothing here proves the run touches accounts only.
-    let mut safe_rk = rk.to_safe_host(
+    rk.with_safe_host(
         block_constants
             .michelson_runtime_block_constants
             .safe_roots
             .clone(),
-    );
-    safe_rk.host_mut().start().map_err(|err| {
-        RunCodeError::Host(format!("cannot snapshot the state: {err:?}"))
-    })?;
-    // Open a keyspace frame alongside the `/tmp` copy.
-    safe_rk
-        .checkpoint()
-        .map_err(|err| RunCodeError::Host(format!("cannot frame the state: {err:?}")))?;
+        |safe_rk| {
+            safe_rk.host_mut().start().map_err(|err| {
+                RunCodeError::Host(format!("cannot snapshot the state: {err:?}"))
+            })?;
+            // Open a keyspace frame alongside the `/tmp` copy.
+            safe_rk.checkpoint().map_err(|err| {
+                RunCodeError::Host(format!("cannot frame the state: {err:?}"))
+            })?;
 
-    let result =
-        tezos_execution::run_code(&mut safe_rk, &registry, &mut journal, &params);
+            let result =
+                tezos_execution::run_code(safe_rk, &registry, &mut journal, &params);
 
-    // The `/tmp` copy and the keyspace frames cover disjoint roots: revert
-    // both.
-    match (result, safe_rk.revert_both()) {
-        (result, Ok(())) => result,
-        // A failed revert makes the simulation result unusable.
-        (Ok(_), Err(why)) => Err(RunCodeError::Host(format!(
-            "cannot revert the simulation: {why}"
-        ))),
-        // The run's own error is the one the caller asked about.
-        (Err(run_err), Err(why)) => {
-            log!(Error, "Reverting the run_code simulation failed: {}", why);
-            Err(run_err)
-        }
-    }
+            // The `/tmp` copy and the keyspace frames cover disjoint roots: revert
+            // both.
+            match (result, safe_rk.revert_both()) {
+                (result, Ok(())) => result,
+                // A failed revert makes the simulation result unusable.
+                (Ok(_), Err(why)) => Err(RunCodeError::Host(format!(
+                    "cannot revert the simulation: {why}"
+                ))),
+                // The run's own error is the one the caller asked about.
+                (Err(run_err), Err(why)) => {
+                    log!(Error, "Reverting the run_code simulation failed: {}", why);
+                    Err(run_err)
+                }
+            }
+        },
+    )
 }
 
 /// Query the entrypoints and synthetic views of a contract and write
