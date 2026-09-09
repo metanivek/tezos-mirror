@@ -336,6 +336,7 @@ mod tests {
     use revm::context::result::{ExecutionResult, Output, ResultGas};
     use revm_etherlink::helpers::legacy::alloy_to_u256;
     use revm_etherlink::ExecutionOutcome;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
 
     use proptest::prelude::*;
@@ -387,7 +388,8 @@ mod tests {
     #[test]
     fn apply_updates_balances_no_sequencer() {
         // Arrange
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
 
         let address = address_from_str("af1276cbb260bb13deddb4209ae99ae6e497f446");
         let balance = U256::from(1000);
@@ -426,7 +428,8 @@ mod tests {
     #[test]
     fn apply_updates_balances_with_sequencer() {
         // Arrange
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let sequencer_address =
             address_from_str("0123456789ABCDEF0123456789ABCDEF01234567");
 
@@ -476,7 +479,8 @@ mod tests {
     fn charge_inclusion_fees_fails_if_too_large() {
         // The inclusion fee deduction (now in apply.rs) should fail
         // when the charge exceeds the caller's balance.
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
 
         let address = address_from_str("af1276cbb260bb13deddb4209ae99ae6e497f446");
         let balance = U256::from(1000);

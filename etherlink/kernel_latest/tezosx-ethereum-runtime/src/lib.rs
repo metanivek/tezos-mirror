@@ -813,6 +813,7 @@ impl RuntimeInterface for EthereumRuntime {
 
 #[cfg(all(test, feature = "testing"))]
 mod tests {
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_smart_rollup_keyspace::KeySpace;
     use tezosx_journal::TezosXHashes;
 
@@ -879,7 +880,8 @@ mod tests {
 
     #[test]
     fn test_serve_simple_transfer() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -918,7 +920,8 @@ mod tests {
 
     #[test]
     fn test_serve_executes_contract_bytecode() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -979,7 +982,8 @@ mod tests {
     /// X-Tezos-Amount. The contract reads CALLVALUE and stores it.
     #[test]
     fn test_serve_with_value_sets_correct_msg_value() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let block_constants = BlockConstants::test_block_with_no_fees();
@@ -1101,7 +1105,8 @@ mod tests {
 
     #[test]
     fn test_serve_post_restores_crac_chain_depth() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let sender = Address::from_slice(&[0x11; 20]);
@@ -1130,7 +1135,8 @@ mod tests {
 
     #[test]
     fn test_serve_get_restores_crac_chain_depth() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let sender = Address::from_slice(&[0x11; 20]);
@@ -1163,7 +1169,8 @@ mod tests {
     /// `TxEnv.caller`, flipping `tx.origin` mid-frame.
     #[test]
     fn test_serve_post_restores_cross_runtime_originator() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let sender = Address::from_slice(&[0x11; 20]);
@@ -1193,7 +1200,8 @@ mod tests {
 
     #[test]
     fn test_serve_get_restores_cross_runtime_originator() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let sender = Address::from_slice(&[0x11; 20]);
@@ -1229,7 +1237,8 @@ mod tests {
         // CRAC. This is the bracketed counter `crac_chain_depth` is now
         // aligned with; the assertion holds regardless of the
         // crac_chain_depth fix.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
         let sender = Address::from_slice(&[0x11; 20]);
@@ -1561,7 +1570,8 @@ mod tests {
     /// Test that serve() handles zero-amount transfers correctly.
     #[test]
     fn test_serve_zero_amount_transfer() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -1597,7 +1607,8 @@ mod tests {
     /// Test that serve() correctly handles fractional TEZ amounts.
     #[test]
     fn test_serve_fractional_amount_transfer() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -1634,7 +1645,8 @@ mod tests {
 
     #[test]
     fn test_serve_calls_contract() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -1747,7 +1759,8 @@ mod tests {
     /// the slot-0 assertion.
     #[test]
     fn inbound_crac_origin_is_source_sender_is_caller() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -1808,7 +1821,8 @@ mod tests {
     fn cracreceived_source_runtime_follows_header() {
         use alloy_sol_types::SolEvent;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -1874,7 +1888,8 @@ mod tests {
     fn cracreceived_source_runtime_defaults_to_tezos_when_absent() {
         use alloy_sol_types::SolEvent;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -1906,7 +1921,8 @@ mod tests {
     /// behavior is preserved.
     #[test]
     fn inbound_crac_origin_equals_caller_when_source_is_sender() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -1959,7 +1975,8 @@ mod tests {
     /// the H-0094 bypass: before L2-1363 it returned 200 (`passed=1`).
     #[test]
     fn inbound_crac_eoa_only_guard_blocks_contract_caller() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -1987,7 +2004,8 @@ mod tests {
     /// (`source == sender` → `tx.origin == msg.sender`).
     #[test]
     fn inbound_crac_eoa_only_guard_allows_eoa() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -2022,7 +2040,8 @@ mod tests {
     /// read `1`.
     #[test]
     fn inbound_crac_does_not_leak_origin_caller_nonce_bump() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -2073,7 +2092,8 @@ mod tests {
         use revm_etherlink::precompiles::runtime_gateway::RuntimeGateway;
         use tezosx_interfaces::testing::MockRegistry;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
 
         // A = true originator (X-Tezos-Source), B = immediate caller (X-Tezos-Sender).
@@ -2268,7 +2288,8 @@ mod tests {
     /// asserted 200 into a 500.
     #[test]
     fn test_serve_accepts_code_bearing_caller() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -2329,7 +2350,8 @@ mod tests {
 
     #[test]
     fn test_serve_unsupported_method_returns_405() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -2362,7 +2384,8 @@ mod tests {
 
     #[test]
     fn test_static_call_with_nonzero_amount_is_rejected() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -2394,7 +2417,8 @@ mod tests {
         //   RETURN         (0xF3)
         let bytecode_raw = Bytes::from_hex("604260005260206000F3").unwrap();
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -2441,7 +2465,8 @@ mod tests {
         //   RETURN         (0xF3)
         let bytecode_raw = Bytes::from_hex("60016000556000600060F3").unwrap();
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let registry = UnimplementedRegistry;
@@ -2505,7 +2530,8 @@ mod tests {
         //   REVERT         (0xFD)
         let bytecode_raw = Bytes::from_hex("604260005260206000FD").unwrap();
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 
@@ -2568,7 +2594,8 @@ mod tests {
         //     SET_CODE delegations. A single read is charged.
         #[test]
         fn backstop_fires_on_account_with_code() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (addr, addr_str) = evm_addr(0xbb);
 
@@ -2585,7 +2612,8 @@ mod tests {
         //     on its own — only code presence promotes to Native.
         #[test]
         fn backstop_with_empty_code_returns_unknown() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (addr, addr_str) = evm_addr(0xcc);
 
@@ -2609,7 +2637,8 @@ mod tests {
         // (c) Account does not exist → Unknown, single read charged.
         #[test]
         fn no_account_returns_unknown() {
-            let rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (_, addr_str) = evm_addr(0xdd);
 
@@ -2622,7 +2651,8 @@ mod tests {
         // (d) Native classification in the account record → Native.
         #[test]
         fn recorded_native_origin_returns_native() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (addr, addr_str) = evm_addr(0xee);
 
@@ -2647,7 +2677,8 @@ mod tests {
         //     its payload, from the same single read.
         #[test]
         fn recorded_alias_origin_returns_alias_payload() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (addr, addr_str) = evm_addr(0xff);
 
@@ -2675,7 +2706,8 @@ mod tests {
         // (f) Malformed hex address → Unknown, no charge
         #[test]
         fn malformed_address_returns_unknown_no_charge() {
-            let rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
 
             let budget = Gas::new(100_000, RuntimeId::Ethereum);
@@ -2687,7 +2719,8 @@ mod tests {
         // (g) Wrong-length hex address → Unknown, no charge
         #[test]
         fn wrong_length_hex_returns_unknown_no_charge() {
-            let rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
 
             let budget = Gas::new(100_000, RuntimeId::Ethereum);
@@ -2701,7 +2734,8 @@ mod tests {
         // (h) Insufficient budget for the read → OutOfGas
         #[test]
         fn insufficient_budget_returns_out_of_gas() {
-            let rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (_, addr_str) = evm_addr(0x11);
 
@@ -2714,7 +2748,8 @@ mod tests {
         // (i) Budget exactly ALIAS_LOOKUP_COST → succeeds, consumed == budget
         #[test]
         fn exact_budget_succeeds() {
-            let rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let (_, addr_str) = evm_addr(0x22);
 
@@ -2762,7 +2797,8 @@ mod tests {
         // materialization instead of blessing an uninitialized forwarder.
         #[test]
         fn failed_init_defers_and_does_not_brick_alias() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = EthereumRuntime::default();
             let registry = UnimplementedRegistry;
             let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
@@ -2873,7 +2909,8 @@ mod tests {
     fn test_serve_block_observables_reflect_outer_block() {
         use tezos_ethereum::block::{BlockConstants, BlockFees};
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = EthereumRuntime::default();
         let registry = UnimplementedRegistry;
 

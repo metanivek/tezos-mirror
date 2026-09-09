@@ -321,6 +321,7 @@ mod tests {
     use revm_etherlink::storage::sequencer_key_change::{
         read_sequencer_change_counter, store_sequencer_key_change,
     };
+    use tezos_evm_runtime::runtime::MockKernelHost;
 
     fn test_public_key() -> PublicKey {
         PublicKey::from_b58check("edpkuSLWfVU1Vq7Jg9FucPyKmma6otcMHac9zG4oU1KMHSTBpJuGQ2")
@@ -333,7 +334,8 @@ mod tests {
     // before activation), so there is nothing to invalidate at store-time.
     #[test]
     fn governance_change_increments_counter_once_on_apply() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         assert_eq!(
             read_sequencer_change_counter(rk.host()).unwrap(),
@@ -385,7 +387,8 @@ mod tests {
     // legitimately pre-signed next change would verify against a stale value.
     #[test]
     fn precompile_change_apply_does_not_increment_counter() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Simulate the precompile store-time effects: the pending change is
         // stored and the counter is bumped exactly once.

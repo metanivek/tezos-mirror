@@ -41,11 +41,11 @@ use tezos_smart_rollup_host::{runtime::RuntimeError, storage::StorageV1};
 use tezos_smart_rollup_keyspace::KeySpace;
 use tezosx_interfaces::{AliasInfo, Origin, Registry};
 
-pub struct EtherlinkVMDB<'a, Host, KS, R> {
+pub struct EtherlinkVMDB<'a, 'host, Host, KS, R> {
     pub registry: &'a R,
     /// Runtime keyspaces handle. Durable access goes through
     /// `self.rk.host()` / `self.rk.host_mut()` (the wrapped storage).
-    pub rk: &'a mut RuntimeKeyspaces<Host, KS>,
+    pub rk: &'a mut RuntimeKeyspaces<'host, Host, KS>,
     /// Constants for the current block
     pub(crate) block: &'a BlockConstants,
     /// Commit guard, the `DatabaseCommit` trait and in particular
@@ -76,7 +76,7 @@ pub struct EtherlinkVMDB<'a, Host, KS, R> {
     staged_alias_origins: HashMap<Address, AliasInfo>,
 }
 
-impl<'a, Host, KS, R> HasHost for EtherlinkVMDB<'a, Host, KS, R> {
+impl<'a, 'host, Host, KS, R> HasHost for EtherlinkVMDB<'a, 'host, Host, KS, R> {
     type H = Host;
 
     fn as_host_mut(&mut self) -> &mut Self::H {
@@ -89,14 +89,14 @@ enum AccountState {
     SelfDestructed,
 }
 
-impl<'a, Host, KS, R> EtherlinkVMDB<'a, Host, KS, R>
+impl<'a, 'host, Host, KS, R> EtherlinkVMDB<'a, 'host, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,
 {
     #[instrument(skip_all)]
     pub fn new(
-        rk: &'a mut RuntimeKeyspaces<Host, KS>,
+        rk: &'a mut RuntimeKeyspaces<'host, Host, KS>,
         registry: &'a R,
         block: &'a BlockConstants,
         classify_native: Option<Address>,
@@ -127,7 +127,7 @@ macro_rules! abort_on_error {
 }
 
 impl<Host, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>
-    EtherlinkVMDB<'_, Host, KS, R>
+    EtherlinkVMDB<'_, '_, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,
@@ -274,7 +274,7 @@ where
 // Precompile read functions care about the difference between a path not found and a runtime error
 // as path not found is the only one that will produce a revert result
 impl<Host, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>
-    DatabasePrecompileStateChanges for EtherlinkVMDB<'_, Host, KS, R>
+    DatabasePrecompileStateChanges for EtherlinkVMDB<'_, '_, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,
@@ -340,7 +340,7 @@ where
     }
 }
 
-impl<Host, KS, R> RevmDatabase for EtherlinkVMDB<'_, Host, KS, R>
+impl<Host, KS, R> RevmDatabase for EtherlinkVMDB<'_, '_, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,
@@ -390,7 +390,7 @@ where
     }
 }
 impl<Host, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>
-    DatabaseCommitPrecompileStateChanges for EtherlinkVMDB<'_, Host, KS, R>
+    DatabaseCommitPrecompileStateChanges for EtherlinkVMDB<'_, '_, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,
@@ -495,7 +495,7 @@ where
 }
 
 impl<Host, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>> DatabaseCommit
-    for EtherlinkVMDB<'_, Host, KS, R>
+    for EtherlinkVMDB<'_, '_, Host, KS, R>
 where
     Host: StorageV1,
     KS: KeySpace,

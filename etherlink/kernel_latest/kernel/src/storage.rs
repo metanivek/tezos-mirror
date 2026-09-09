@@ -1168,7 +1168,8 @@ mod tests {
     // resolved durable paths never moved.
     #[test]
     fn base_keyspace_readers_resolve_to_absolute_paths() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let kt1 = tezos_crypto_rs::hash::ContractKt1Hash::from_base58_check(
             "KT18amZmM5W7qDWVt2pH6uj7sCEd3kbzLrHT",
         )
@@ -1258,7 +1259,8 @@ mod tests {
     // missing, would slip past the positive test but is caught here.
     #[test]
     fn base_keyspace_readers_on_empty_base_return_absent() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         assert_eq!(super::read_admin(rk.base()), None);
         assert_eq!(super::read_kernel_governance(rk.base()), None);
@@ -1284,7 +1286,8 @@ mod tests {
     fn base_keyspace_scalar_writers_resolve_to_absolute_paths() {
         use tezos_smart_rollup_encoding::timestamp::Timestamp;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         super::store_l1_level(rk.base_mut(), 99).unwrap();
         assert_eq!(super::read_l1_level(rk.base()).unwrap(), 99);
@@ -1316,7 +1319,8 @@ mod tests {
     // the reader, and that disabling deletes the flag.
     #[test]
     fn base_keyspace_dal_writers_resolve_to_absolute_paths() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let enable_dal_path = RefPath::assert_from(b"/base/feature_flags/enable_dal");
         let dal_slots_path = RefPath::assert_from(b"/base/dal_slots");
@@ -1343,7 +1347,8 @@ mod tests {
     // proving the resolved durable paths never moved.
     #[test]
     fn base_keyspace_config_readers_resolve_to_absolute_paths() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         rk.host_mut()
             .store_write_all(
@@ -1381,7 +1386,8 @@ mod tests {
     // wrong key, or defaulting to a "present" value, would be caught here.
     #[test]
     fn base_keyspace_config_readers_on_empty_base_use_defaults() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         assert_eq!(super::delayed_inbox_timeout(rk.base()).unwrap(), 43200);
         assert_eq!(super::delayed_inbox_min_levels(rk.base()).unwrap(), 720);
@@ -1393,7 +1399,8 @@ mod tests {
     // `/base` keyspace and, when set, consumes it (keeping this run's events).
     #[test]
     fn clear_events_consumes_keep_flag_through_keyspace() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let keep_path = RefPath::assert_from(b"/base/keep_rollup_events");
 
         // Flag set at its historical absolute path: clear_events keeps the
@@ -1412,7 +1419,8 @@ mod tests {
     // each value still lands at its historical absolute path.
     #[test]
     fn base_keyspace_version_writers_resolve_to_absolute_paths() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // On a fresh base, versioning is not yet initialised.
         assert!(!rk.base().contains(&super::STORAGE_VERSION_KEY));
@@ -1451,7 +1459,8 @@ mod tests {
         use crate::simulation::SimulationResult;
         use tezos_ethereum::rlp_helpers::VersionedEncoding;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // The simulation result is RLP-encoded with a leading version byte
         // (`VersionedEncoding`). The keyspace writer must store exactly those
@@ -1483,7 +1492,8 @@ mod tests {
     fn init_storage_versioning_reconciles_version_into_base() {
         // Fresh storage bootstraps to the current version.
         {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let (host, base) = rk.base_parts_mut();
             crate::init_storage_versioning(host, base).unwrap();
             assert_eq!(
@@ -1494,7 +1504,8 @@ mod tests {
 
         // A version already under `/base` is left untouched.
         {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             rk.base_mut()
                 .set(&super::STORAGE_VERSION_KEY, 46u64.to_le_bytes())
                 .unwrap();
@@ -1510,7 +1521,8 @@ mod tests {
         // into `/base` (not bumped to the current version) and the legacy path
         // is cleared.
         {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             rk.host_mut()
                 .store_write_all(
                     &super::LEGACY_STORAGE_VERSION_PATH,
@@ -1556,13 +1568,15 @@ mod tests {
 
     #[test]
     fn http_trace_flag_default_off() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         assert!(!super::is_http_trace_enabled(rk.base()));
     }
 
     #[test]
     fn http_trace_flag_on_once_written() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.base_mut()
             .set(&super::HTTP_TRACE_ENABLED_KEY, [1u8])
             .unwrap();

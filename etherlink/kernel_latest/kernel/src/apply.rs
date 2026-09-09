@@ -1395,6 +1395,7 @@ pub(crate) mod tests {
         transaction::TransactionType,
         tx_common::EthereumTransactionCommon,
     };
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
     use tezos_smart_rollup_encoding::timestamp::Timestamp;
     use tezos_smart_rollup_keyspace::KeySpace;
@@ -1471,7 +1472,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_valid() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
         // setup
@@ -1502,7 +1504,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_cannot_prepay() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1535,7 +1538,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_signature() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1568,7 +1572,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_wrong_nonce() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1603,7 +1608,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_wrong_chain_id() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1636,7 +1642,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_max_fee_less_than_base_fee() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1669,7 +1676,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_invalid_not_enough_gas_for_fee() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 

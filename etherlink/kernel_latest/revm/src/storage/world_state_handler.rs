@@ -653,6 +653,7 @@ mod test {
         },
         storage::code::CodeStorage,
     };
+    use tezos_evm_runtime::runtime::MockKernelHost;
 
     use revm::{
         primitives::{Bytes, FixedBytes, KECCAK_EMPTY},
@@ -683,7 +684,8 @@ mod test {
 
     #[test]
     fn check_withdrawal_code_info_fetching() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code_voucher = bytecode_from_static(XTZ_BRIDGE_SOL_CONTRACT.code).unwrap();
 
@@ -696,7 +698,8 @@ mod test {
 
     #[test]
     fn check_fa_withdrawal_code_info_fetching() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code_voucher = bytecode_from_static(FA_BRIDGE_SOL_CONTRACT.code).unwrap();
 
@@ -709,7 +712,8 @@ mod test {
 
     #[test]
     fn check_internal_forwarder_code_info_fetching() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code_voucher =
             bytecode_from_static(INTERNAL_FORWARDER_SOL_CONTRACT.code).unwrap();
@@ -723,7 +727,8 @@ mod test {
 
     #[test]
     fn check_empty_account_code_info_fetching() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code_voucher = Bytecode::new();
 
@@ -864,7 +869,8 @@ mod test {
         use revm::primitives::Address;
         use tezosx_interfaces::{AliasInfo, RuntimeId};
 
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
 
         for (i, origin) in [
@@ -911,7 +917,8 @@ mod test {
         use revm::primitives::Address;
         use tezosx_interfaces::{AliasInfo, RuntimeId};
 
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let addr = Address::from_slice(&[0x42; 20]);
         let mut account = StorageAccount::from_address(&addr).unwrap();
@@ -946,7 +953,8 @@ mod test {
         use crate::storage::world_state_handler::StorageAccount;
         use revm::primitives::{Address, U256};
 
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let mut system = StorageAccount::from_address(&Address::ZERO).unwrap();
         let ticket_hash = U256::from(1);

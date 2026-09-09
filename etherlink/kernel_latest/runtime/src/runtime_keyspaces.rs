@@ -4,11 +4,9 @@
 
 //! [`RuntimeKeyspaces`]: the storage handle threaded through kernel execution.
 //!
-//! It holds the host and the keyspaces the execution reads and writes, and
-//! lends them out one at a time. [`RuntimeKeyspaces::init`] builds it, and is
-//! the only keyspace load of a kernel invocation.
-
-use std::borrow::{Borrow, BorrowMut};
+//! It borrows the host and holds the keyspaces the execution reads and
+//! writes, and lends them out one at a time. [`RuntimeKeyspaces::init`]
+//! builds it, and is the only keyspace load of a kernel invocation.
 
 use tezos_evm_logging::{log, set_global_verbosity, Level};
 use thiserror::Error;
@@ -18,9 +16,8 @@ use tezos_smart_rollup_host::runtime::RuntimeError;
 use tezos_smart_rollup_host::storage::StorageV1;
 use tezos_smart_rollup_host::wasm::WasmHost;
 use tezos_smart_rollup_keyspace::{KeySpaceLoader, Name};
-use tezos_smart_rollup_mock::MockHost;
 
-use crate::runtime::{read_logs_verbosity, KernelHost, MockKernelHost};
+use crate::runtime::{read_logs_verbosity, MockKernelHost};
 use crate::safe_storage::SafeStorage;
 use crate::snapshot::{PreviousRun, SafeKeyspace, SnapshotError, SnapshottedKeySpace};
 
@@ -33,13 +30,16 @@ pub const BASE_KEYSPACE_NAME: Name = Name::from_static("/base");
 pub const ETH_ACCOUNTS_KEYSPACE_NAME: Name = Name::from_static("/evm/eth_accounts");
 
 /// Storage handle threaded through kernel execution.
-pub struct RuntimeKeyspaces<Host, KS> {
-    host: Host,
+///
+/// The host is borrowed for `'host`: its owner keeps it, and gets it back
+/// once the handle is gone.
+pub struct RuntimeKeyspaces<'host, Host, KS> {
+    host: &'host mut Host,
     base: KS,
     keyspaces: Keyspaces<KS>,
 }
 
-impl<Host, KS> RuntimeKeyspaces<Host, KS> {
+impl<'host, Host, KS> RuntimeKeyspaces<'host, Host, KS> {
     /// The `/base` keyspace.
     pub fn base(&self) -> &KS {
         &self.base
@@ -62,12 +62,12 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
 
     /// The host, for the durable accesses that have no keyspace yet.
     pub fn host(&self) -> &Host {
-        &self.host
+        &*self.host
     }
 
     /// The host, for the durable accesses that have no keyspace yet.
     pub fn host_mut(&mut self) -> &mut Host {
-        &mut self.host
+        &mut *self.host
     }
 
     /// The host and the `/base` keyspace, lent out together.
@@ -76,7 +76,7 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
     /// so cannot go through `host_mut`/`base_mut` alone because they need
     /// both borrows alive at once.
     pub fn base_parts_mut(&mut self) -> (&mut Host, &mut KS) {
-        (&mut self.host, &mut self.base)
+        (&mut *self.host, &mut self.base)
     }
 
     /// Open a frame on every keyspace.
@@ -89,7 +89,7 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
         Host: KeySpaceLoader<KeySpace = KS::Live>,
     {
         for keyspace in self.keyspaces.iter_mut() {
-            keyspace.checkpoint(&mut self.host)?;
+            keyspace.checkpoint(&mut *self.host)?;
         }
         Ok(())
     }
@@ -171,13 +171,14 @@ impl<Host, KS> RuntimeKeyspaces<Host, KS> {
     pub fn with_safe_host<T>(
         &mut self,
         world_states: Vec<OwnedPath>,
-        f: impl FnOnce(&mut RuntimeKeyspaces<SafeStorage<&mut Host>, &mut KS>) -> T,
+        f: impl FnOnce(&mut RuntimeKeyspaces<'_, SafeStorage<&mut Host>, &mut KS>) -> T,
     ) -> T {
+        let mut safe_host = SafeStorage {
+            host: &mut *self.host,
+            world_states,
+        };
         let mut safe_rk = RuntimeKeyspaces {
-            host: SafeStorage {
-                host: &mut self.host,
-                world_states,
-            },
+            host: &mut safe_host,
             base: &mut self.base,
             keyspaces: self.keyspaces.as_mut(),
         };
@@ -194,7 +195,7 @@ pub enum RevertError {
     Frames(#[from] SnapshotError),
 }
 
-impl<Host, KS> RuntimeKeyspaces<SafeStorage<&mut Host>, &mut KS>
+impl<Host, KS> RuntimeKeyspaces<'_, SafeStorage<&mut Host>, &mut KS>
 where
     Host: StorageV1,
     KS: SafeKeyspace,
@@ -210,18 +211,12 @@ where
     }
 }
 
-impl<R, H>
-    RuntimeKeyspaces<
-        KernelHost<R, H>,
-        SnapshottedKeySpace<<KernelHost<R, H> as KeySpaceLoader>::KeySpace>,
-    >
+impl<'host, Host> RuntimeKeyspaces<'host, Host, SnapshottedKeySpace<Host::KeySpace>>
 where
-    KernelHost<R, H>: KeySpaceLoader,
-    H: BorrowMut<R> + Borrow<R>,
-    R: WasmHost,
+    Host: KeySpaceLoader + WasmHost,
 {
-    /// Build the kernel host over `host`, load the keyspaces, and apply the
-    /// log verbosity recorded under `/base`.
+    /// Loads the keyspaces from `host` and applies the log verbosity recorded
+    /// under `/base`.
     ///
     /// Each keyspace is started here, at the top of the run, so a transaction
     /// a reboot interrupted is re-attached before any caller looks: `start`
@@ -229,8 +224,7 @@ where
     ///
     /// Whether the previous run was cut short is read before any `start`, since
     /// `start` is what would otherwise adopt an interrupted run's writes.
-    pub fn init(host: H) -> Result<Self, SnapshotError> {
-        let mut host = KernelHost::init(host);
+    pub fn init(host: &'host mut Host) -> Result<Self, SnapshotError> {
         let previous = if host
             .last_run_aborted()
             .map_err(SnapshotError::PreviousRun)?
@@ -244,9 +238,10 @@ where
         set_global_verbosity(read_logs_verbosity(&base));
         // `/base` belongs to no block: reverting it would drop blueprints from
         // an inbox level that cannot be read twice.
-        let base = SnapshottedKeySpace::start(&mut host, base, PreviousRun::Complete)?;
+        let base = SnapshottedKeySpace::start(&mut *host, base, PreviousRun::Complete)?;
         let eth_accounts = host.load_or_create(ETH_ACCOUNTS_KEYSPACE_NAME)?;
-        let eth_accounts = SnapshottedKeySpace::start(&mut host, eth_accounts, previous)?;
+        let eth_accounts =
+            SnapshottedKeySpace::start(&mut *host, eth_accounts, previous)?;
         Ok(Self {
             host,
             base,
@@ -281,15 +276,9 @@ impl<KS> Keyspaces<KS> {
 /// A keyspace a [`MockKernelHost`] mints, for the tests.
 pub type MockKeySpace = SnapshottedKeySpace<<MockKernelHost as KeySpaceLoader>::KeySpace>;
 
-/// The handle a [`MockKernelHost`] mints, for the tests.
-pub type MockRuntimeKeyspaces = RuntimeKeyspaces<MockKernelHost, MockKeySpace>;
-
-/// Handle over a fresh mock host, for the tests.
-impl Default for MockRuntimeKeyspaces {
-    fn default() -> Self {
-        Self::init(MockHost::default()).expect("failed to init the runtime keyspaces")
-    }
-}
+/// The handle over a borrowed [`MockKernelHost`], for the tests.
+pub type MockRuntimeKeyspaces<'host> =
+    RuntimeKeyspaces<'host, MockKernelHost, MockKeySpace>;
 
 #[cfg(test)]
 mod tests {
@@ -301,7 +290,8 @@ mod tests {
 
     #[test]
     fn frames_cover_the_eth_accounts_keyspace() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut().store_write_all(&PROBE, b"before").unwrap();
 
         rk.checkpoint().unwrap();
@@ -313,7 +303,8 @@ mod tests {
 
     #[test]
     fn end_kernel_run_restores_the_eth_accounts_bedrock() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut().store_write_all(&PROBE, b"before").unwrap();
 
         rk.checkpoint().unwrap();

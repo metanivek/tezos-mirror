@@ -200,6 +200,7 @@ mod tests {
         AccountInfo, AccountOrigin, StorageAccount,
     };
     use tezos_crypto_rs::hash::ContractKt1Hash;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
     use tezos_execution::{context, NULL_PKH};
     use tezos_smart_rollup::types::PublicKeyHash;
@@ -209,7 +210,8 @@ mod tests {
     #[test]
     fn test_serve_unknown_host_returns_404() {
         let registry = RegistryImpl::default();
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let request = http::Request::builder()
             .uri("http://unknown/some/path")
@@ -226,7 +228,8 @@ mod tests {
     #[test]
     fn test_serve_no_host_returns_404() {
         let registry = RegistryImpl::default();
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let request = http::Request::builder()
             .uri("/some/path")
@@ -244,7 +247,8 @@ mod tests {
 
     #[test]
     fn read_origin_dispatches_to_ethereum_runtime() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
 
         let addr =
@@ -272,7 +276,8 @@ mod tests {
 
     #[test]
     fn read_origin_dispatches_to_tezos_runtime() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
 
         // An implicit tz1 is Native by construction — no seeding needed.
@@ -292,7 +297,8 @@ mod tests {
 
     #[test]
     fn read_origin_ethereum_unknown_address_fires_backstop() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
 
         let addr =
@@ -324,7 +330,8 @@ mod tests {
 
     #[test]
     fn read_origin_tezos_implicit_address_native_no_backstop_charge() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
 
         let budget = Gas::new(1_000_000, RuntimeId::Tezos);
@@ -352,7 +359,8 @@ mod tests {
         // unchanged. The first call deploys; the second is just a
         // read of the classification path.
         let registry = RegistryImpl::default();
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let native_address = "0x3333333333333333333333333333333333333333";
         let alias_info = tezosx_interfaces::AliasInfo {
@@ -411,7 +419,8 @@ mod tests {
         // classification `create_alias` writes durably, so the second call
         // only reads it back and leaves the gas budget unchanged.
         let registry = RegistryImpl::default();
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Originating the forwarder snapshots the Michelson world state, so
         // seed the subtree the way migration does in production.
         let null_pkh = PublicKeyHash::from_b58check(NULL_PKH).unwrap();

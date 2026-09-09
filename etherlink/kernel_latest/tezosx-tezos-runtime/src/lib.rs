@@ -1452,6 +1452,7 @@ mod tests {
     use tezos_crypto_rs::hash::HashTrait;
     use tezos_data_encoding::types::Zarith;
     use tezos_ethereum::block::BlockConstants;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
     use tezosx_journal::TezosXHashes;
 
@@ -1784,8 +1785,8 @@ mod tests {
 
     // Seed the Michelson world state so the alias snapshot has a subtree
     // to copy, as in production where migration creates it.
-    fn test_rk() -> MockRuntimeKeyspaces {
-        let mut rk = RuntimeKeyspaces::default();
+    fn test_rk(host: &mut MockKernelHost) -> MockRuntimeKeyspaces<'_> {
+        let mut rk = RuntimeKeyspaces::init(host).unwrap();
         let null_pkh = PublicKeyHash::from_b58check(NULL_PKH).unwrap();
         let account = context::implicit_from_public_key_hash(&null_pkh).unwrap();
         account.allocate(rk.host_mut()).unwrap();
@@ -1809,7 +1810,8 @@ mod tests {
 
     #[test]
     fn ensure_alias_materializes_code_less() {
-        let mut rk = test_rk();
+        let mut host = MockKernelHost::default();
+        let mut rk = test_rk(&mut host);
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0x1234567890abcdef1234567890abcdef12345678";
@@ -1874,7 +1876,8 @@ mod tests {
 
     #[test]
     fn create_alias_stores_evm_address_in_storage() {
-        let mut rk = test_rk();
+        let mut host = MockKernelHost::default();
+        let mut rk = test_rk(&mut host);
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
@@ -1908,7 +1911,8 @@ mod tests {
 
     #[test]
     fn ensure_alias_sets_zero_balance() {
-        let mut rk = test_rk();
+        let mut host = MockKernelHost::default();
+        let mut rk = test_rk(&mut host);
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
@@ -1963,7 +1967,8 @@ mod tests {
         // The kernel must never reach an alias address that has been
         // classified as Native. If it does, the call returns an error
         // rather than overwriting the classification.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
         let runtime = test_runtime();
         let evm_address = "0x5555555555555555555555555555555555555555";
@@ -2706,7 +2711,8 @@ mod tests {
     // slot-stack discipline.
     #[test]
     fn serve_does_not_touch_outer_dispatch_slot() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
 
@@ -2750,7 +2756,8 @@ mod tests {
     fn serve_early_4xx_reports_op_limit() {
         use crate::headers::X_TEZOS_GAS_LIMIT;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
@@ -2789,7 +2796,9 @@ mod tests {
         const SENDER_KT1: &str = "KT1GRAN26ni19mgd6xpL6tsH52LNnhKSQzP2";
         const GAS_LIMIT: u64 = 600_000_000;
 
-        let mut rk = test_rk();
+        let mut host = MockKernelHost::default();
+
+        let mut rk = test_rk(&mut host);
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
@@ -2854,7 +2863,9 @@ mod tests {
         const SENDER_KT1: &str = "KT1GRAN26ni19mgd6xpL6tsH52LNnhKSQzP2";
         const GAS_LIMIT: u64 = 600_000_000;
 
-        let mut rk = test_rk();
+        let mut host = MockKernelHost::default();
+
+        let mut rk = test_rk(&mut host);
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
         let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
@@ -2941,7 +2952,8 @@ mod tests {
         // Never originated in this host → ContractDoesNotExist on transfer.
         const MISSING_DEST_KT1: &str = "KT18oDJJKXMKhfE1bSuAPGp92pYcwVDiqsPw";
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
 
@@ -3064,7 +3076,8 @@ mod tests {
         const SOURCE_KT1: &str = "KT18amZmM5W7qDWVt2pH6uj7sCEd3kbzLrHT";
         const SENDER_KT1: &str = "KT1GRAN26ni19mgd6xpL6tsH52LNnhKSQzP2";
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let runtime = test_runtime();
         let registry = NotWiredRegistry;
 
@@ -3216,7 +3229,8 @@ mod tests {
         // transfer, with the journal counter pre-seeded to `base` (the block's
         // prior internal-op count). Returns the CRAC's HTTP status.
         let run = |base: u128| {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = test_runtime();
             let registry = NotWiredRegistry;
             let parser = mir::parser::Parser::new();
@@ -3345,7 +3359,8 @@ mod tests {
         //     no stored `/origin`), even when unrecorded. Charges ALIAS_LOOKUP_COST.
         #[test]
         fn read_origin_implicit_returns_native() {
-            let rk = MockRuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = test_runtime();
 
             let budget = TezosXGas::new(1_000_000, RuntimeId::Tezos);
@@ -3359,7 +3374,8 @@ mod tests {
         // (d) Malformed address → Unknown, no charge
         #[test]
         fn read_origin_malformed_address_returns_unknown_no_charge() {
-            let rk = MockRuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = test_runtime();
 
             let budget = TezosXGas::new(1_000_000, RuntimeId::Tezos);
@@ -3375,7 +3391,8 @@ mod tests {
         fn read_origin_kt1_address_returns_native() {
             use tezos_crypto_rs::hash::ContractKt1Hash;
 
-            let mut rk = MockRuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
             let runtime = test_runtime();
 
             // Use a real-looking KT1 derived from blake2b to avoid parse errors.

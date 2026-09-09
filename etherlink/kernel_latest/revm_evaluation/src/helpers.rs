@@ -4,7 +4,7 @@
 
 use revm::primitives::{alloy_primitives::Keccak256, B256};
 
-use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
+use tezos_evm_runtime::runtime::MockKernelHost;
 
 pub fn bytes_hash(bytes: &[u8]) -> B256 {
     let mut keccak = Keccak256::new();
@@ -26,9 +26,10 @@ pub fn extract_brackets(string: &str) -> &str {
     &string[start + 1..end]
 }
 
-pub fn prepare_rk() -> MockRuntimeKeyspaces {
+/// A fresh mock kernel host for one test, with the debug log emptied.
+pub fn prepare_host() -> MockKernelHost {
     tezos_evm_logging::DEBUG_LOG.with_borrow_mut(|log| log.truncate(0));
-    MockRuntimeKeyspaces::default()
+    MockKernelHost::default()
 }
 
 #[macro_export]

@@ -750,6 +750,7 @@ mod tests {
         run_transaction, storage::world_state_handler::StorageAccount, GasData,
     };
     use tezos_ethereum::{block::BlockConstants, tx_signature::TxSignature};
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezosx_journal::TezosXJournal;
 
     use crate::registry_impl::RegistryImpl;
@@ -896,7 +897,8 @@ mod tests {
     #[test]
     fn simulation_result() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let new_address = create_contract(&mut rk);
 
@@ -955,7 +957,8 @@ mod tests {
     #[test]
     fn evaluation_result_no_gas() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let new_address = create_contract(&mut rk);
 
@@ -1024,7 +1027,8 @@ mod tests {
     #[test]
     fn parse_simulation2() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let new_address = create_contract(&mut rk);
 
         let to = Some(new_address);

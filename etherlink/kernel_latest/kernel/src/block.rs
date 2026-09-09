@@ -798,6 +798,7 @@ mod tests {
     };
     use tezos_ethereum::tx_common::EthereumTransactionCommon;
     use tezos_evm_runtime::extensions::WithGas;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::safe_storage::ETHERLINK_SAFE_STORAGE_ROOT_PATH;
     use tezos_execution::context;
     use tezos_smart_rollup_keyspace::KeySpaceLoader;
@@ -1287,7 +1288,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Store bootstrap2 in the tezlink context to ensure the
         // Tezlink context is not empty and can thus be backed up
@@ -1349,7 +1351,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Store bootstrap2 in the tezlink context to ensure the
         // Tezlink context is not empty and can thus be backed up
@@ -1489,7 +1492,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the low-fee reveal operation is not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1564,7 +1568,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the low-fee operations are not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1693,7 +1698,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
         let chain_config = dummy_tezosx_config_with_tezos_runtime(&mut rk);
@@ -1791,7 +1797,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the test operations are not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1949,7 +1956,8 @@ mod tests {
         // internal-op count seeded to `base`. Returns whether the top-level
         // operation was `Applied`.
         let run = |base: u128| {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
             store_block_fees(rk.host_mut(), &dummy_block_fees()).unwrap();
 
@@ -2116,7 +2124,8 @@ mod tests {
     #[test]
     // Test if the invalid transactions are producing receipts
     fn test_invalid_transactions_receipt_status() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2154,7 +2163,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a success status
     fn test_valid_transactions_receipt_status() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2196,7 +2206,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a contract address
     fn test_valid_transactions_receipt_contract_address() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx_hash = [0; TRANSACTION_HASH_SIZE];
         let tx = dummy_eth_transaction_deploy();
@@ -2244,7 +2255,8 @@ mod tests {
     #[test]
     // Test if several valid transactions can be performed
     fn test_several_valid_transactions() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2263,7 +2275,8 @@ mod tests {
     #[test]
     // Test if several valid proposals can produce valid blocks
     fn test_several_valid_proposals() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2325,7 +2338,8 @@ mod tests {
     #[test]
     // Test transfers gas consumption consistency
     fn test_cumulative_transfers_gas_consumption() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let base_gas = U256::from(21000);
         let dummy_block_fees = dummy_block_fees();
@@ -2386,7 +2400,8 @@ mod tests {
     // Test if we're able to read current block (with a filled queue) after
     // a block production
     fn test_read_storage_current_block_after_block_production_with_filled_queue() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         produce_block_with_several_valid_txs(&mut rk);
 
@@ -2396,7 +2411,8 @@ mod tests {
     #[test]
     // Test that the same transaction can not be replayed twice
     fn test_replay_attack() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx = Transaction {
             tx_hash: [0; TRANSACTION_HASH_SIZE],
@@ -2471,7 +2487,8 @@ mod tests {
     #[test]
     fn test_stop_computation() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let block_constants = first_block(&mut rk);
 
@@ -2569,7 +2586,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Allocate bootstrap2 in Tezlink storage so the SafeStorage
         // backup of TEZOS_ACCOUNTS_ROOT succeeds,
@@ -2692,7 +2710,8 @@ mod tests {
 
     #[test]
     fn invalid_transaction_should_bump_nonce() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let caller =
             address_from_str("f95abdf6ede4c3703e0e9453771fbee8592d31e9").unwrap();
@@ -2763,7 +2782,8 @@ mod tests {
 
     #[test]
     fn test_first_blocks() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // SafeStorage::start()'s store_copy needs each safe root to exist.
         init_safe_storage_roots(rk.host_mut());
 
@@ -2876,7 +2896,8 @@ mod tests {
     #[test]
     fn test_reboot_many_tx_one_proposal() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // sanity check: no current block
         assert!(
@@ -2962,7 +2983,8 @@ mod tests {
     #[test]
     fn test_reboot_many_tx_many_proposal() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
@@ -3069,7 +3091,8 @@ mod tests {
         // address.
 
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // see
         // https://basescan.org/tx/0x07471adfe8f4ec553c1199f495be97fc8be8e0626ae307281c22534460184ed1
@@ -3135,7 +3158,8 @@ mod tests {
     // hardened, the error propagated as a block-level failure and the whole
     // forced blueprint was reverted, halting the chain.
     fn test_delayed_empty_eip7702_authorization_list_does_not_abort_block() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -3201,7 +3225,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a success status
     fn test_type_propagation() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -3270,7 +3295,8 @@ mod tests {
             (protocol, next_protocol)
         }
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let chain_config = dummy_tezosx_config_with_tezos_runtime(&mut rk);
         let mut config = dummy_configuration();
@@ -3331,7 +3357,8 @@ mod tests {
         // returned Ok(true) for all Tezos operations regardless of gas,
         // so this test would see Finished instead of RebootNeeded.
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let block_constants = first_block(&mut rk);
 

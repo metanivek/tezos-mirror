@@ -9,14 +9,15 @@ use tezosx_interfaces::Registry;
 use crate::{database::EtherlinkVMDB, journal::Journal};
 use tezos_evm_runtime::snapshot::{KeyspaceHost, SafeKeyspace};
 
-pub fn log<'j, Host, KS, R, CTX>(context: &mut CTX, log: Log)
+pub fn log<'j, 'host, Host, KS, R, CTX>(context: &mut CTX, log: Log)
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     if let Some(mut tracer) = context.journal_mut().take_tracer() {

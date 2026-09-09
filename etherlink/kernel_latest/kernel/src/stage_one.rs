@@ -227,7 +227,8 @@ mod tests {
         enable_dal: bool,
         kernel_slots: Option<Vec<u8>>,
     ) -> Configuration {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
         let delayed_bridge: ContractKt1Hash =
@@ -384,7 +385,8 @@ mod tests {
 
     #[test]
     fn test_parsing_proxy_transaction() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .host
             .add_external(Bytes::from(hex::decode(DUMMY_TRANSACTION).unwrap()));
@@ -410,7 +412,8 @@ mod tests {
 
     #[test]
     fn test_parsing_proxy_chunked_transaction() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .host
             .add_external(Bytes::from(hex::decode(DUMMY_NEW_CHUNKED_TX).unwrap()));
@@ -441,7 +444,8 @@ mod tests {
     }
 
     fn test_sequencer_reject_proxy_transactions(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .host
             .add_external(Bytes::from(hex::decode(DUMMY_TRANSACTION).unwrap()));
@@ -474,7 +478,8 @@ mod tests {
     }
 
     fn test_sequencer_reject_proxy_chunked_transactions(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .host
             .add_external(Bytes::from(hex::decode(DUMMY_NEW_CHUNKED_TX).unwrap()));
@@ -513,7 +518,8 @@ mod tests {
     }
 
     fn test_parsing_valid_sequencer_chunk(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut().host.add_external(Bytes::from(
             hex::decode(DUMMY_BLUEPRINT_CHUNK_NUMBER_10).unwrap(),
         ));
@@ -555,7 +561,8 @@ mod tests {
     }
 
     fn test_parsing_invalid_sequencer_chunk(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut().host.add_external(Bytes::from(
             hex::decode(DUMMY_BLUEPRINT_CHUNK_UNPARSABLE).unwrap(),
         ));
@@ -588,7 +595,8 @@ mod tests {
     }
 
     fn test_proxy_rejects_sequencer_chunk(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut().host.add_external(Bytes::from(
             hex::decode(DUMMY_BLUEPRINT_CHUNK_NUMBER_10).unwrap(),
         ));
@@ -633,7 +641,8 @@ mod tests {
     }
 
     fn test_parsing_delayed_inbox(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(enable_dal, None);
         let metadata = TransferMetadata::new(
             delayed_bridge(&conf),
@@ -674,7 +683,8 @@ mod tests {
     }
 
     fn test_parsing_l1_contract_inbox(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(enable_dal, None);
         let metadata = TransferMetadata::new(
             ContractKt1Hash::from_b58check(DUMMY_INVALID_TICKETER).unwrap(),
@@ -716,7 +726,8 @@ mod tests {
 
     #[test]
     fn test_parsing_delayed_inbox_rejected_in_proxy() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_proxy_configuration();
         let metadata = TransferMetadata::new(
             ContractKt1Hash::from_b58check(DUMMY_INVALID_TICKETER).unwrap(),
@@ -745,7 +756,8 @@ mod tests {
 
     #[test]
     fn test_deposit_in_proxy_mode() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_proxy_configuration();
         let metadata = TransferMetadata::new(
             conf.common.tezos_contracts.ticketer.clone().unwrap(),
@@ -778,7 +790,8 @@ mod tests {
 
     #[test]
     fn test_deposit_with_invalid_ticketer() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_proxy_configuration();
         let metadata = TransferMetadata::new(
             ContractKt1Hash::from_b58check(DUMMY_INVALID_TICKETER).unwrap(),
@@ -812,7 +825,8 @@ mod tests {
     }
 
     fn test_deposit_in_sequencer_mode(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(enable_dal, None);
         let metadata = TransferMetadata::new(
             conf.common.tezos_contracts.ticketer.clone().unwrap(),
@@ -910,7 +924,8 @@ mod tests {
 
     #[test]
     fn test_dal_signal() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(true, None);
 
         setup_dal_signal(&mut rk, &mut conf, None, None);
@@ -926,7 +941,8 @@ mod tests {
 
     #[test]
     fn test_dal_signal_empty_slot() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(false, Some(vec![8]));
 
         setup_dal_signal(&mut rk, &mut conf, Some(vec![21]), Some(vec![]));
@@ -942,7 +958,8 @@ mod tests {
 
     #[test]
     fn test_dal_signal_with_multiple_slots_filled() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(true, Some(vec![6, 8]));
 
         setup_dal_signal(&mut rk, &mut conf, None, None);
@@ -958,7 +975,8 @@ mod tests {
 
     #[test]
     fn test_parsable_dal_signal_without_dal() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(false, None);
 
         setup_dal_signal(&mut rk, &mut conf, Some(vec![6]), None);
@@ -974,7 +992,8 @@ mod tests {
 
     #[test]
     fn test_invalid_dal_signal() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_sequencer_config(true, Some(vec![8]));
 
         setup_dal_signal(&mut rk, &mut conf, Some(vec![21]), None);
@@ -993,7 +1012,8 @@ mod tests {
         // The mock host always contains SOL/info-per-level/EOL messages, so
         // the proxy reads an inbox with zero user transactions and produces
         // a blueprint with an empty transaction list.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut conf = dummy_proxy_configuration();
         let status = fetch_blueprints(
             &mut rk,
@@ -1027,7 +1047,8 @@ mod tests {
     fn test_proxy_multiple_simple_transactions_in_one_blueprint() {
         // All transactions received during a single L1 level must be
         // collected into a single proxy blueprint.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Add the same transaction three times (they are independent
         // external messages).
         for _ in 0..3 {
@@ -1068,7 +1089,8 @@ mod tests {
     fn test_proxy_mixed_simple_tx_and_deposit() {
         // A blueprint produced in proxy mode should contain both plain
         // transactions and deposits received during the same L1 level.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // One simple transaction
         rk.host_mut()
@@ -1120,7 +1142,8 @@ mod tests {
         // extracted from the inbox. We verify that after
         // fetch_blueprints the resulting blueprint has a non-zero
         // timestamp that matches the value read back from storage.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         rk.host_mut()
             .host
@@ -1160,7 +1183,8 @@ mod tests {
         // storage contains no sequencer public key.
         use crate::configuration::fetch_configuration;
 
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let conf = fetch_configuration(rk.host(), rk.base());
         assert!(
             matches!(conf.mode, ConfigurationMode::Proxy),
