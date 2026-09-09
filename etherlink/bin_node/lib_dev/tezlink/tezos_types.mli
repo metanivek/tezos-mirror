@@ -30,6 +30,11 @@ val convert_using_serialization :
   'b ->
   'a tzresult
 
+(** Converts a protocol [Chain_id.t] to its L2 counterpart using
+    little-endian byte interpretation, consistent with the kernel's
+    [to_le_bytes()] convention. *)
+val l2_chain_id_from_protocol_chain_id : Chain_id.t -> L2_types.chain_id
+
 (** Imports the type Contract.t from Alpha_context. Not everything is imported
     from Alpha_context.Contract as most of it require a context, which we
     can't provide.

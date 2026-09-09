@@ -47,6 +47,9 @@ let convert_using_serialization ~name ~dst ~src value =
          @@ Serialization_for_conversion
               (name, Format.asprintf "%a" Data_encoding.Binary.pp_read_error e))
 
+let l2_chain_id_from_protocol_chain_id chain_id =
+  L2_types.Chain_id.decode_le (Chain_id.to_bytes chain_id)
+
 module Contract = struct
   type t = Tezlink_imports.Imported_context.Contract.t
 

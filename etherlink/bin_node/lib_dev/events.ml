@@ -622,6 +622,7 @@ let background_task_error =
     ~name:"background_task_error"
     ~msg:"background task {name} failed with error {error}"
     ~level:Fatal
+    ~pp2:Format.pp_print_string
     ("name", Data_encoding.string)
     ("error", Data_encoding.string)
 
