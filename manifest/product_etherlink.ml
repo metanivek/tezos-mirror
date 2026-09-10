@@ -412,6 +412,7 @@ let _octez_evm_node_tests =
       "test_entrypoints_decoder";
       "test_run_code_codec";
       "test_tezlink_prevalidation";
+      "test_transaction_object";
     ]
     ~path:"etherlink/bin_node/test"
     ~opam:"octez-evm-node-tests"

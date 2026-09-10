@@ -3,6 +3,7 @@
 (* SPDX-License-Identifier: MIT                                              *)
 (* Copyright (c) 2025 Nomadic Labs <contact@nomadic-labs.com>                *)
 (* Copyright (c) 2025 Functori <contact@functori.com>                        *)
+(* Copyright (c) 2026 Trilitech <contact@trili.tech>                         *)
 (*                                                                           *)
 (*****************************************************************************)
 
@@ -419,15 +420,93 @@ let block_from_legacy block =
       | TxFull l -> TxFull (List.map from_store_transaction_object l));
   }
 
+(** [decode_number_be_canonical bytes] decodes [bytes] as a big-endian integer,
+    rejecting non-canonical RLP integer encodings, i.e. those carrying a leading
+    zero byte.
+
+    The kernel decodes transaction integer fields with the Rust RLP crate's
+    [as_val], which enforces this same invariant during blueprint application.
+    Accepting a non-canonical integer at admission would therefore let a
+    malformed transaction pass the node's public RPC only to abort application
+    of the blueprint that embeds it in the kernel (see
+    {!Rlp.decode_int}/{!Rlp.decode_z} which enforce the invariant for lengths).
+*)
+let decode_number_be_canonical bytes =
+  let open Result_syntax in
+  if Bytes.length bytes > 0 && Bytes.get_uint8 bytes 0 = 0 then
+    error_with
+      "non-canonical RLP integer encoding in transaction (leading zero byte)"
+  else return (decode_number_be bytes)
+
+let decode_number_be_canonical_bounded ~field ~max_bytes bytes =
+  if Bytes.length bytes > max_bytes then
+    error_with
+      "%s is too large for kernel transaction decoding (expected at most %d \
+       bytes, got %d)"
+      field
+      max_bytes
+      (Bytes.length bytes)
+  else decode_number_be_canonical bytes
+
+let decode_u256_be_canonical ~field bytes =
+  decode_number_be_canonical_bounded ~field ~max_bytes:32 bytes
+
+let decode_u64_be_canonical ~field bytes =
+  decode_number_be_canonical_bounded ~field ~max_bytes:8 bytes
+
+let decode_u8_be_canonical ~field bytes =
+  decode_number_be_canonical_bounded ~field ~max_bytes:1 bytes
+
+let decode_typed_transaction_y_parity bytes =
+  let open Result_syntax in
+  let* (Qty v as res) = decode_u8_be_canonical ~field:"y_parity" bytes in
+  if Compare.Z.(v < Z.of_int 4) then return res
+  else error_with "Invalid typed transaction y_parity"
+
+(* The kernel decodes address fields as [H160] (exactly 20 bytes) and storage
+   keys as [H256] (exactly 32 bytes). As with {!decode_number_be_canonical},
+   accepting a wrong-length value at admission would let a transaction pass the
+   node's public RPC only to abort blueprint application in the kernel. *)
+let address_length = 20
+
+let storage_key_length = 32
+
+let decode_address_checked bytes =
+  let open Result_syntax in
+  if Bytes.length bytes = address_length then
+    return (Ethereum_types.decode_address bytes)
+  else
+    error_with
+      "invalid address length in transaction (expected %d bytes, got %d)"
+      address_length
+      (Bytes.length bytes)
+
+let decode_address_checked_or_empty bytes =
+  let open Result_syntax in
+  if bytes = Bytes.empty then return None
+  else
+    let+ to_ = decode_address_checked bytes in
+    Some to_
+
+let decode_storage_key_checked bytes =
+  let open Result_syntax in
+  if Bytes.length bytes = storage_key_length then
+    return (Ethereum_types.decode_hex bytes)
+  else
+    error_with
+      "invalid storage key length in transaction (expected %d bytes, got %d)"
+      storage_key_length
+      (Bytes.length bytes)
+
 let decode_access_list =
   let open Result_syntax in
   Rlp.decode_list (function
     | List [Value address; storage_keys] ->
-        let address = Ethereum_types.decode_address address in
+        let* address = decode_address_checked address in
         let* storage_keys =
           Rlp.decode_list
             (function
-              | Value x -> Ok (Ethereum_types.decode_hex x)
+              | Value x -> decode_storage_key_checked x
               | _ -> error_with "Invalid storage key")
             storage_keys
         in
@@ -445,13 +524,14 @@ let decode_authorization_list =
           Value r;
           Value s;
         ] ->
-        let chain_id = decode_number_be chain_id in
-        let address = decode_address address in
-        let nonce = decode_number_be nonce in
-        let y_parity = decode_number_be y_parity in
-        let r = decode_number_be r in
-        let s = decode_number_be s in
-        Ok {chain_id; address; nonce; y_parity; r; s}
+        let open Result_syntax in
+        let* chain_id = decode_u256_be_canonical ~field:"chain_id" chain_id in
+        let* address = decode_address_checked address in
+        let* nonce = decode_u64_be_canonical ~field:"nonce" nonce in
+        let* y_parity = decode_u8_be_canonical ~field:"y_parity" y_parity in
+        let* r = decode_u256_be_canonical ~field:"r" r in
+        let* s = decode_u256_be_canonical ~field:"s" s in
+        return {chain_id; address; nonce; y_parity; r; s}
     | _ -> error_with "Expected list of 6 elements in authorization list")
 
 (** Compute the recovery ID from the signature's [v] value for legacy transactions.
@@ -460,20 +540,25 @@ let decode_authorization_list =
       [recovery_id = v - (2 * chain_id + 35)].
 *)
 let legacy_recovery_id ~chain_id ~v =
-  let v = Z.to_int v in
-  match chain_id with
-  | None -> v - 27
-  | Some chain_id ->
-      let chain_id = Z.to_int chain_id in
-      v - ((chain_id * 2) + 35)
+  let open Z in
+  let recovery_id =
+    match chain_id with
+    | None -> v - of_int 27
+    | Some chain_id -> v - ((chain_id * of_int 2) + of_int 35)
+  in
+  if recovery_id = zero || recovery_id = one then Ok (to_int recovery_id)
+  else Error "Invalid recovery id"
 
-(** Normalize the [v] value into a recovery ID ([0] or [1]).
-    - If [v] is 27 or 28, returns [v - 27].
-    - Otherwise, returns [v] unchanged (for signatures that already encode [0] or [1]).
-*)
-let recovery_id ~v =
-  let vi = Z.to_int v in
-  if vi = 27 || vi = 28 then vi - 27 else vi
+(** Decode the [v] value of a typed transaction as a recovery ID ([0] or [1]).
+    Legacy transactions, including the historical [27]/[28] encoding, are
+    handled separately by {!legacy_recovery_id}.
+
+    The kernel currently accepts [0..3]; this node-side validation is
+    intentionally stricter and keeps the historical node behaviour of rejecting
+    [2] and [3]. *)
+let typed_recovery_id ~v =
+  if Compare.Z.(v = Z.zero || v = Z.one) then Ok (Z.to_int v)
+  else Error "Invalid recovery id"
 
 (** Half of the secp256k1 curve order (or subgroup size).
     To avoid two encodings of the same signature, Ethereum enforces a rule: s must be =< to n
@@ -500,6 +585,8 @@ let recover_sender ~hash ~recovery_id ~r ~s =
     Bytes.init (String.length rv) (fun i -> rv.[String.length rv - 1 - i])
   in
   let* recovery_id =
+    (* The kernel currently accepts 0, 1, 2, and 3. This keeps the historical
+       node behaviour of rejecting 2 and 3. *)
     if recovery_id = 0 || recovery_id = 1 then
       Ok (Bytes.of_string (String.make 1 (Char.chr recovery_id)))
     else Error "Invalid recovery id"
@@ -515,56 +602,17 @@ let recover_sender ~hash ~recovery_id ~r ~s =
   let* pub = Tezos_crypto.Signature.Secp256k1.recover sig_ hash in
   Ok (Ethereum_types.Address (Hex (Hex.of_bytes pub |> Hex.show)))
 
-(** Build the RLP-encoded message used for EIP-7702 authorization signatures.
-    The message encodes the [chain_id], [address], and [nonce] fields.
-*)
-let auth_message {chain_id = Qty chain_id; address; nonce = Qty nonce; _} =
-  let open Rlp in
-  let chain_id = encode_z chain_id in
-  let nonce = encode_z nonce in
-  let rlp =
-    List
-      [
-        Value chain_id;
-        Value (Ethereum_types.encode_address address);
-        Value nonce;
-      ]
-  in
-  encode rlp
-
-(** Compute the Keccak-256 hash of an EIP-7702 authorization message.
-    A magic byte [0x05] is prepended before hashing, as required by the spec.
-*)
-let authorization_hash authorization =
-  let authority_magic_byte = '\005' in
-  let buffer = Buffer.create 128 in
-  Buffer.add_char buffer authority_magic_byte ;
-  let rlp_authorization = auth_message authorization in
-  Buffer.add_bytes buffer rlp_authorization ;
-  let raw_bytes = Buffer.to_bytes buffer in
-  Tezos_crypto.Hacl.Hash.Keccak_256.digest raw_bytes
-
-(** Recover the signer of an EIP-7702 [authorization_item].
-    Computes the authorization hash and uses the signature components ([r], [s], [y_parity])
-    to recover the Ethereum address of the signer.
-*)
-let authorization_signer
-    ({r = Qty r; s = Qty s; y_parity = Qty y_parity; _} as authorization :
-      authorization_item) =
-  let hash = authorization_hash authorization in
-  let recovery_id = recovery_id ~v:y_parity in
-  recover_sender ~hash ~recovery_id ~r ~s
-
 (** Recover the signer of a typed Ethereum transaction.
     - [rlp] is the RLP-encoded transaction.
     - [prefix_char] is the transaction type prefix byte (e.g. [0x02] for EIP-1559).
     - [v], [r], [s] are the signature components.
 *)
 let transaction_signer ~rlp ~v ~r ~s ~prefix_char =
+  let open Result_syntax in
   let module H = Tezos_crypto.Hacl.Hash.Keccak_256 in
   let prefix = Bytes.make 1 (Char.chr prefix_char) in
   let hash = H.digest (Bytes.cat prefix (Rlp.encode rlp)) in
-  let recovery_id = recovery_id ~v in
+  let* recovery_id = typed_recovery_id ~v in
   recover_sender ~hash ~recovery_id ~r ~s
 
 (** Recover the signer of a legacy (type [0x0]) Ethereum transaction.
@@ -573,9 +621,10 @@ let transaction_signer ~rlp ~v ~r ~s ~prefix_char =
     - [chain_id] is optional: [None] for pre-EIP-155, [Some id] for EIP-155 signatures.
 *)
 let legacy_transaction_signer ~rlp ~v ~r ~s ~chain_id =
+  let open Result_syntax in
   let module H = Tezos_crypto.Hacl.Hash.Keccak_256 in
   let hash = H.digest @@ Rlp.encode rlp in
-  let recovery_id = legacy_recovery_id ~v ~chain_id in
+  let* recovery_id = legacy_recovery_id ~v ~chain_id in
   recover_sender ~hash ~recovery_id ~r ~s
 
 let reconstruct_eip_2930_from_raw raw_txn hash =
@@ -609,17 +658,17 @@ let reconstruct_eip_2930_from_raw raw_txn hash =
             access_list;
           ]
       in
-      let chain_id = decode_number_be chain_id in
-      let nonce = decode_number_be nonce in
-      let gas_price = decode_number_be gas_price in
-      let gas = decode_number_be gas_limit in
-      let to_ = if to_ = Bytes.empty then None else Some (decode_address to_) in
-      let value = decode_number_be value in
+      let* chain_id = decode_u256_be_canonical ~field:"chain_id" chain_id in
+      let* nonce = decode_u64_be_canonical ~field:"nonce" nonce in
+      let* gas_price = decode_u256_be_canonical ~field:"gas_price" gas_price in
+      let* gas = decode_u64_be_canonical ~field:"gas_limit" gas_limit in
+      let* to_ = decode_address_checked_or_empty to_ in
+      let* value = decode_u256_be_canonical ~field:"value" value in
       let input = Ethereum_types.decode_hex input in
       let* access_list = decode_access_list access_list in
-      let v = decode_number_be v in
-      let r = decode_number_be r in
-      let s = decode_number_be s in
+      let* v = decode_typed_transaction_y_parity v in
+      let* r = decode_u256_be_canonical ~field:"r" r in
+      let* s = decode_u256_be_canonical ~field:"s" s in
       let (Qty v_z) = v in
       let (Qty r_z) = r in
       let (Qty s_z) = s in
@@ -690,20 +739,24 @@ let reconstruct_eip_1559_from_raw raw_txn hash =
             access_list;
           ]
       in
-      let chain_id = decode_number_be chain_id in
-      let nonce = decode_number_be nonce in
-      let max_priority_fee_per_gas =
-        decode_number_be max_priority_fee_per_gas
+      let* chain_id = decode_u256_be_canonical ~field:"chain_id" chain_id in
+      let* nonce = decode_u64_be_canonical ~field:"nonce" nonce in
+      let* max_priority_fee_per_gas =
+        decode_u256_be_canonical
+          ~field:"max_priority_fee_per_gas"
+          max_priority_fee_per_gas
       in
-      let max_fee_per_gas = decode_number_be max_fee_per_gas in
-      let gas = decode_number_be gas_limit in
-      let to_ = if to_ = Bytes.empty then None else Some (decode_address to_) in
-      let value = decode_number_be value in
+      let* max_fee_per_gas =
+        decode_u256_be_canonical ~field:"max_fee_per_gas" max_fee_per_gas
+      in
+      let* gas = decode_u64_be_canonical ~field:"gas_limit" gas_limit in
+      let* to_ = decode_address_checked_or_empty to_ in
+      let* value = decode_u256_be_canonical ~field:"value" value in
       let input = Ethereum_types.decode_hex input in
       let* access_list = decode_access_list access_list in
-      let v = decode_number_be v in
-      let r = decode_number_be r in
-      let s = decode_number_be s in
+      let* v = decode_typed_transaction_y_parity v in
+      let* r = decode_u256_be_canonical ~field:"r" r in
+      let* s = decode_u256_be_canonical ~field:"s" s in
       let (Qty v_z) = v in
       let (Qty r_z) = r in
       let (Qty s_z) = s in
@@ -777,21 +830,25 @@ let reconstruct_eip_7702_from_raw raw_txn hash =
             authorization_list;
           ]
       in
-      let chain_id = decode_number_be chain_id in
-      let nonce = decode_number_be nonce in
-      let max_priority_fee_per_gas =
-        decode_number_be max_priority_fee_per_gas
+      let* chain_id = decode_u256_be_canonical ~field:"chain_id" chain_id in
+      let* nonce = decode_u64_be_canonical ~field:"nonce" nonce in
+      let* max_priority_fee_per_gas =
+        decode_u256_be_canonical
+          ~field:"max_priority_fee_per_gas"
+          max_priority_fee_per_gas
       in
-      let max_fee_per_gas = decode_number_be max_fee_per_gas in
-      let gas = decode_number_be gas_limit in
-      let to_ = if to_ = Bytes.empty then None else Some (decode_address to_) in
-      let value = decode_number_be value in
+      let* max_fee_per_gas =
+        decode_u256_be_canonical ~field:"max_fee_per_gas" max_fee_per_gas
+      in
+      let* gas = decode_u64_be_canonical ~field:"gas_limit" gas_limit in
+      let* to_ = decode_address_checked_or_empty to_ in
+      let* value = decode_u256_be_canonical ~field:"value" value in
       let input = decode_hex input in
       let* access_list = decode_access_list access_list in
       let* authorization_list = decode_authorization_list authorization_list in
-      let v = decode_number_be v in
-      let r = decode_number_be r in
-      let s = decode_number_be s in
+      let* v = decode_typed_transaction_y_parity v in
+      let* r = decode_u256_be_canonical ~field:"r" r in
+      let* s = decode_u256_be_canonical ~field:"s" s in
       let (Qty v_z) = v in
       let (Qty r_z) = r in
       let (Qty s_z) = s in
@@ -865,15 +922,15 @@ let reconstruct_legacy_from_raw raw_txn hash =
             Value input;
           ]
       in
-      let nonce = decode_number_be nonce in
-      let gasPrice = decode_number_be gas_price in
-      let gas = decode_number_be gas_limit in
-      let to_ = if to_ = Bytes.empty then None else Some (decode_address to_) in
-      let value = decode_number_be value in
+      let* nonce = decode_u64_be_canonical ~field:"nonce" nonce in
+      let* gasPrice = decode_u256_be_canonical ~field:"gas_price" gas_price in
+      let* gas = decode_u64_be_canonical ~field:"gas_limit" gas_limit in
+      let* to_ = decode_address_checked_or_empty to_ in
+      let* value = decode_u256_be_canonical ~field:"value" value in
       let input = Ethereum_types.decode_hex input in
-      let v = decode_number_be v in
-      let r = decode_number_be r in
-      let s = decode_number_be s in
+      let* v = decode_u256_be_canonical ~field:"v" v in
+      let* r = decode_u256_be_canonical ~field:"r" r in
+      let* s = decode_u256_be_canonical ~field:"s" s in
       let (Qty v_z) = v in
       let (Qty r_z) = r in
       let (Qty s_z) = s in
@@ -982,40 +1039,44 @@ let reconstruct_from_eip_7702_transaction (obj : legacy_transaction_object)
         "Unexpected transaction type in reconstruct_from_eip_7702_transaction"
 
 let reconstruct_from_raw_transaction (obj : legacy_transaction_object) raw_txn =
-  match String.get raw_txn 0 with
-  | '\x04' ->
-      (* EIP 7702 *)
-      reconstruct_from_eip_7702_transaction
-        obj
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-  | '\x02' ->
-      (* EIP 1559 *)
-      reconstruct_from_eip_1559_transaction
-        obj
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-  | '\x01' ->
-      (* EIP 2930 *)
-      reconstruct_from_eip_2930_transaction
-        obj
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-  | _ -> Ok (Legacy obj)
+  if String.length raw_txn = 0 then error_with "empty raw transaction"
+  else
+    match String.get raw_txn 0 with
+    | '\x04' ->
+        (* EIP 7702 *)
+        reconstruct_from_eip_7702_transaction
+          obj
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+    | '\x02' ->
+        (* EIP 1559 *)
+        reconstruct_from_eip_1559_transaction
+          obj
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+    | '\x01' ->
+        (* EIP 2930 *)
+        reconstruct_from_eip_2930_transaction
+          obj
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+    | _ -> Ok (Legacy obj)
 
 let decode raw_txn =
-  let hash = Ethereum_types.hash_raw_tx raw_txn in
-  match String.get raw_txn 0 with
-  | '\x04' ->
-      reconstruct_eip_7702_from_raw
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-        hash
-  | '\x02' ->
-      reconstruct_eip_1559_from_raw
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-        hash
-  | '\x01' ->
-      reconstruct_eip_2930_from_raw
-        (String.sub raw_txn 1 (String.length raw_txn - 1))
-        hash
-  | _ -> reconstruct_legacy_from_raw raw_txn hash
+  if String.length raw_txn = 0 then error_with "empty raw transaction"
+  else
+    let hash = Ethereum_types.hash_raw_tx raw_txn in
+    match String.get raw_txn 0 with
+    | '\x04' ->
+        reconstruct_eip_7702_from_raw
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+          hash
+    | '\x02' ->
+        reconstruct_eip_1559_from_raw
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+          hash
+    | '\x01' ->
+        reconstruct_eip_2930_from_raw
+          (String.sub raw_txn 1 (String.length raw_txn - 1))
+          hash
+    | _ -> reconstruct_legacy_from_raw raw_txn hash
 
 let reconstruct_from_transactions_list transactions
     (obj : legacy_transaction_object) =
