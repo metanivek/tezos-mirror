@@ -124,7 +124,7 @@ module CallTracer : sig
     address : Ethereum_types.address;
     topics : Ethereum_types.hex list;
     data : Ethereum_types.hex;
-    position : Ethereum_types.quantity;
+    position : Ethereum_types.quantity option;
   }
 
   type output = {
