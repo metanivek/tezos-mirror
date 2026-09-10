@@ -86,7 +86,7 @@ where
     type Inbox;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         inbox_content: &mut Self::Inbox,
         common: &CommonConfig,
@@ -96,7 +96,7 @@ where
         KS: SafeKeyspace;
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -107,7 +107,7 @@ where
         KS: SafeKeyspace;
 
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -124,7 +124,7 @@ impl InputHandler for ProxyInput {
     type Inbox = ProxyInboxContent;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         inbox_content: &mut Self::Inbox,
         _common_config: &CommonConfig,
@@ -164,7 +164,7 @@ impl InputHandler for ProxyInput {
     }
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         _chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -182,7 +182,7 @@ impl InputHandler for ProxyInput {
 
     #[cfg_attr(feature = "benchmark", inline(never))]
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         _chain_id: Option<U256>,
         inbox_content: &mut Self::Inbox,
@@ -220,7 +220,7 @@ impl InputHandler for SequencerInput {
     type Inbox = DelayedInbox;
 
     fn handle_input<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         input: Self,
         delayed_inbox: &mut Self::Inbox,
         common: &CommonConfig,
@@ -299,7 +299,7 @@ impl InputHandler for SequencerInput {
     }
 
     fn handle_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         deposit: Deposit,
         _chain_id: Option<U256>,
         delayed_inbox: &mut Self::Inbox,
@@ -317,7 +317,7 @@ impl InputHandler for SequencerInput {
 
     #[cfg_attr(feature = "benchmark", inline(never))]
     fn handle_fa_deposit<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         fa_deposit: FaDeposit,
         _chain_id: Option<U256>,
         delayed_inbox: &mut Self::Inbox,
@@ -415,7 +415,7 @@ fn handle_fa_deposit(
 }
 
 fn force_kernel_upgrade<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> anyhow::Result<()>
 where
     Host: StorageV1 + HostReveal + WasmHost,
@@ -440,7 +440,7 @@ where
 /// Import DAL slots based on protocol attestation information.
 /// This is called when processing DalAttestedSlots internal messages.
 fn import_dal_attested_slots<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     published_level: i32,
     slot_size: u64,
     page_size: u64,
@@ -507,7 +507,7 @@ where
 }
 
 pub fn handle_input<Host, KS, Mode>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     input: Input<Mode>,
     inbox_content: &mut Mode::Inbox,
     common: &CommonConfig,
@@ -570,7 +570,7 @@ enum ReadStatus {
 
 #[allow(clippy::too_many_arguments)]
 fn read_and_dispatch_input<Host, KS, Mode>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     common: &CommonConfig,
     parsing_context: &mut Mode::Context,
@@ -623,7 +623,7 @@ where
 }
 
 pub fn read_proxy_inbox<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     common: &CommonConfig,
     chain_configuration: &TezosXChainConfig,
@@ -690,7 +690,7 @@ pub enum StageOneStatus {
 
 #[allow(clippy::too_many_arguments)]
 pub fn read_sequencer_inbox<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     config_chain: &TezosXChainConfig,
     config_common: &CommonConfig,
@@ -796,6 +796,7 @@ mod tests {
     use tezos_crypto_rs::hash::{ContractKt1Hash, HashTrait, SecretKeyEd25519};
     use tezos_data_encoding::types::Bytes;
     use tezos_ethereum::transaction::TRANSACTION_HASH_SIZE;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_protocol::contract::Contract;
     use tezos_smart_rollup_core::PREIMAGE_HASH_SIZE;
     use tezos_smart_rollup_encoding::inbox::ExternalMessageFrame;
@@ -914,7 +915,8 @@ mod tests {
 
     #[test]
     fn parse_valid_simple_transaction() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx_bytes = &hex::decode("f86d80843b9aca00825208940b52d4d3be5d18a7ab5e4476a2f5382bbf2b38d888016345785d8a000080820a95a0d9ef1298c18c88604e3f08e14907a17dfa81b1dc6b37948abe189d8db5cb8a43a06fc7040a71d71d3cb74bd05ead7046b10668ad255da60391c017eea31555f156").unwrap();
         let tx = EthereumTransactionCommon::from_bytes(tx_bytes).unwrap();
@@ -948,7 +950,8 @@ mod tests {
     #[test]
     fn parse_valid_chunked_transaction() {
         let address = smart_rollup_address();
-        let mut rk = RuntimeKeyspaces::init(MockHost::with_address(&address)).unwrap();
+        let mut host = MockKernelHost::init(MockHost::with_address(&address));
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let (data, tx) = large_transaction();
         let tx_hash: [u8; TRANSACTION_HASH_SIZE] = Keccak256::digest(data.clone()).into();
@@ -979,7 +982,8 @@ mod tests {
 
     #[test]
     fn parse_valid_kernel_upgrade() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Prepare the upgrade's payload
         let preimage_hash: [u8; PREIMAGE_HASH_SIZE] = hex::decode(
@@ -1042,7 +1046,8 @@ mod tests {
     // Assert that trying to create a chunked transaction has no impact. Only
     // the first `NewChunkedTransaction` should be considered.
     fn recreate_chunked_transaction() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let chunk_hashes = vec![[1; TRANSACTION_HASH_SIZE], [2; TRANSACTION_HASH_SIZE]];
         let tx_hash = [0; TRANSACTION_HASH_SIZE];
@@ -1084,7 +1089,8 @@ mod tests {
     // Assert that an out of bound chunk is simply ignored and does
     // not make the kernel fail.
     fn out_of_bound_chunk_is_ignored() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let (data, _tx) = large_transaction();
         let tx_hash = ZERO_TX_HASH;
@@ -1139,7 +1145,8 @@ mod tests {
     // Assert that an unknown chunk is simply ignored and does
     // not make the kernel fail.
     fn unknown_chunk_is_ignored() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let (data, _tx) = large_transaction();
         let tx_hash = ZERO_TX_HASH;
@@ -1193,7 +1200,8 @@ mod tests {
     // - Chunk 1
     // |--> Fails because the chunk is unknown
     fn transaction_is_complete_when_each_chunk_is_stored() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let (data, tx) = large_transaction();
         let tx_hash: [u8; TRANSACTION_HASH_SIZE] = Keccak256::digest(data.clone()).into();
@@ -1258,7 +1266,8 @@ mod tests {
         // parsing. This won't happen in practice, though
         let address = smart_rollup_address();
 
-        let mut rk = RuntimeKeyspaces::init(MockHost::with_address(&address)).unwrap();
+        let mut host = MockKernelHost::init(MockHost::with_address(&address));
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx_bytes = &hex::decode("f86d80843b9aca00825208940b52d4d3be5d18a7ab5\
         e4476a2f5382bbf2b38d888016345785d8a000080820a95a0d9ef1298c18c88604e3f08e14907a17dfa81b1dc6b37948abe189d8db5cb8a43a06\
@@ -1315,7 +1324,8 @@ mod tests {
 
     #[test]
     fn empty_inbox_returns_none() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Even reading the inbox with only the default elements returns
         // an empty inbox content. As we test in isolation there is nothing
@@ -1396,7 +1406,8 @@ mod tests {
         unsigned_blueprint: &UnsignedSequencerBlueprint,
     ) -> bool {
         // Prepare the host.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let address = smart_rollup_address();
         let evm_block_header = EVMBlockHeader {
             hash: crate::block::GENESIS_PARENT_HASH,

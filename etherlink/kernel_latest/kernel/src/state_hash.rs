@@ -130,6 +130,7 @@ pub fn tez_accounts_state_hash<Host: StorageV1>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
     use tezos_smart_rollup_host::path::RefPath;
 
@@ -197,7 +198,8 @@ mod tests {
     #[test]
     fn evm_and_tez_accounts_state_hashes_are_independent() {
         let (valid, delayed, michelson, ts) = fixture_inputs();
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
 
         // Write something distinct under each accounts path so the
         // subtree hashes differ. An empty subtree maps to the same
@@ -222,7 +224,8 @@ mod tests {
     #[test]
     fn evm_hash_matches_the_durable_subtree_hash() {
         let (valid, delayed, michelson, ts) = fixture_inputs();
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .store_write_all(&EVM_ACCOUNTS_PATH, b"evm")
             .unwrap();

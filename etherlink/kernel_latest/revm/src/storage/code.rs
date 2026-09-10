@@ -162,6 +162,7 @@ pub fn get_precompile_bytecode(code_hash: &B256) -> Result<Option<Bytecode>, Evm
 #[cfg(test)]
 mod test {
     use super::{CodeStorage, CODE, REFERENCE};
+    use tezos_evm_runtime::runtime::MockKernelHost;
 
     use revm::{
         primitives::{Bytes, KECCAK_EMPTY},
@@ -175,7 +176,8 @@ mod test {
 
     #[test]
     fn test_empty_contract_hash_matches_default() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let empty_code: Vec<u8> = vec![];
 
@@ -187,7 +189,8 @@ mod test {
 
     #[test]
     fn test_get_code_matches_given() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code: Vec<u8> = (0..100).collect();
         let code_hash = CodeStorage::add(eth_accounts, &code, None)
@@ -207,7 +210,8 @@ mod test {
 
     #[test]
     fn test_code_ref_is_incremented() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let code: Vec<u8> = (0..100).collect();
         let code_hash = CodeStorage::add(eth_accounts, &code, None)
@@ -242,7 +246,8 @@ mod test {
 
     #[test]
     fn test_code_is_deleted() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
 
         let code_storage =
@@ -290,7 +295,8 @@ mod test {
 
     #[test]
     fn test_get_code_from_non_existing_code() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
 
         let code: Vec<u8> = (0..100).collect();

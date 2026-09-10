@@ -29,7 +29,7 @@ impl Registry for UnimplementedRegistry {
     type Journal = TezosXJournal;
     fn ensure_alias<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         _alias_info: AliasInfo,
         _native_public_key: Option<&[u8]>,
@@ -45,7 +45,7 @@ impl Registry for UnimplementedRegistry {
 
     fn alias_exists<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut Self::Journal,
         _target_runtime: RuntimeId,
         _alias: &str,
@@ -74,7 +74,7 @@ impl Registry for UnimplementedRegistry {
 
     fn read_origin<Host, KS>(
         &self,
-        _rk: &RuntimeKeyspaces<Host, KS>,
+        _rk: &RuntimeKeyspaces<'_, Host, KS>,
         _addr_runtime: RuntimeId,
         _addr: &str,
         _gas: Gas,
@@ -88,7 +88,7 @@ impl Registry for UnimplementedRegistry {
 
     fn serve<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         _request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -110,7 +110,7 @@ impl Registry for NotWiredRegistry {
     type Journal = TezosXJournal;
     fn ensure_alias<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         _alias_info: AliasInfo,
         _native_public_key: Option<&[u8]>,
@@ -126,7 +126,7 @@ impl Registry for NotWiredRegistry {
 
     fn alias_exists<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut Self::Journal,
         target_runtime: RuntimeId,
         _alias: &str,
@@ -155,7 +155,7 @@ impl Registry for NotWiredRegistry {
 
     fn read_origin<Host, KS>(
         &self,
-        _rk: &RuntimeKeyspaces<Host, KS>,
+        _rk: &RuntimeKeyspaces<'_, Host, KS>,
         addr_runtime: RuntimeId,
         _addr: &str,
         _gas: Gas,
@@ -169,7 +169,7 @@ impl Registry for NotWiredRegistry {
 
     fn serve<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         _request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -253,7 +253,7 @@ impl Registry for MockRegistry {
     type Journal = TezosXJournal;
     fn ensure_alias<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         alias_info: AliasInfo,
         _native_public_key: Option<&[u8]>,
@@ -279,7 +279,7 @@ impl Registry for MockRegistry {
 
     fn alias_exists<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut Self::Journal,
         target_runtime: RuntimeId,
         alias: &str,
@@ -315,7 +315,7 @@ impl Registry for MockRegistry {
 
     fn read_origin<Host, KS>(
         &self,
-        _rk: &RuntimeKeyspaces<Host, KS>,
+        _rk: &RuntimeKeyspaces<'_, Host, KS>,
         _addr_runtime: RuntimeId,
         _addr: &str,
         _budget: Gas,
@@ -329,7 +329,7 @@ impl Registry for MockRegistry {
 
     fn serve<Host, KS>(
         &self,
-        _rk: &mut RuntimeKeyspaces<Host, KS>,
+        _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         _journal: &mut TezosXJournal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>
@@ -416,7 +416,7 @@ impl Registry for StubRegistry {
     type Journal = TezosXJournal;
     fn ensure_alias<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         alias_info: AliasInfo,
         native_public_key: Option<&[u8]>,
@@ -441,7 +441,7 @@ impl Registry for StubRegistry {
 
     fn alias_exists<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut Self::Journal,
         target_runtime: RuntimeId,
         alias: &str,
@@ -492,7 +492,7 @@ impl Registry for StubRegistry {
 
     fn read_origin<Host, KS>(
         &self,
-        _rk: &RuntimeKeyspaces<Host, KS>,
+        _rk: &RuntimeKeyspaces<'_, Host, KS>,
         _addr_runtime: RuntimeId,
         _addr: &str,
         _budget: Gas,
@@ -515,7 +515,7 @@ impl Registry for StubRegistry {
 
     fn serve<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         journal: &mut TezosXJournal,
         request: http::Request<Vec<u8>>,
     ) -> http::Response<Vec<u8>>

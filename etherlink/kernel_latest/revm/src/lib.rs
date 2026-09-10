@@ -46,26 +46,26 @@ pub mod journal;
 pub mod precompiles;
 pub mod storage;
 
-type EVMInnerContext<'a, Host, KS, R> = Context<
+type EVMInnerContext<'a, 'host, Host, KS, R> = Context<
     &'a BlockEnv,
     &'a TxEnv,
     CfgEnv,
-    EtherlinkVMDB<'a, Host, KS, R>,
-    Journal<'a, Host, KS, R>,
+    EtherlinkVMDB<'a, 'host, Host, KS, R>,
+    Journal<'a, 'host, Host, KS, R>,
 >;
 
-type EvmContext<'a, Host, KS, R> = Evm<
-    EVMInnerContext<'a, Host, KS, R>,
+type EvmContext<'a, 'host, Host, KS, R> = Evm<
+    EVMInnerContext<'a, 'host, Host, KS, R>,
     (),
-    EthInstructions<EthInterpreter, EVMInnerContext<'a, Host, KS, R>>,
+    EthInstructions<EthInterpreter, EVMInnerContext<'a, 'host, Host, KS, R>>,
     EtherlinkPrecompiles,
     EthFrame<EthInterpreter>,
 >;
 
-pub type EvmInspection<'a, Host, KS, INSP, R> = Evm<
-    EVMInnerContext<'a, Host, KS, R>,
+pub type EvmInspection<'a, 'host, Host, KS, INSP, R> = Evm<
+    EVMInnerContext<'a, 'host, Host, KS, R>,
     INSP,
-    EthInstructions<EthInterpreter, EVMInnerContext<'a, Host, KS, R>>,
+    EthInstructions<EthInterpreter, EVMInnerContext<'a, 'host, Host, KS, R>>,
     EtherlinkPrecompiles,
     EthFrame<EthInterpreter>,
 >;
@@ -243,10 +243,10 @@ const ORIGIN_STATIC_GAS: u64 = 2;
 /// alias, exactly as they did before L2-1363). See L2-1441 for the
 /// design rationale that replaces the earlier `TxEnv.caller`-overload
 /// approach.
-fn etherlink_origin<'a, Host, KS, R>(
+fn etherlink_origin<'a, 'host, Host, KS, R>(
     context: revm::interpreter::InstructionContext<
         '_,
-        EVMInnerContext<'a, Host, KS, R>,
+        EVMInnerContext<'a, 'host, Host, KS, R>,
         EthInterpreter,
     >,
 ) where
@@ -272,8 +272,8 @@ fn etherlink_origin<'a, Host, KS, R>(
 /// [`EvmInspection`] as the type alias for the etherlink-shaped `Evm`;
 /// the non-inspector [`EvmContext`] is just `EvmInspection` with
 /// `INSP = ()`, so the same function covers both call sites.
-fn install_etherlink_origin<'a, Host, KS, R, INSP>(
-    evm: &mut EvmInspection<'a, Host, KS, INSP, R>,
+fn install_etherlink_origin<'a, 'host, Host, KS, R, INSP>(
+    evm: &mut EvmInspection<'a, 'host, Host, KS, INSP, R>,
 ) where
     Host: KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -309,10 +309,10 @@ const GASPRICE_STATIC_GAS: u64 = 2;
 /// `TxEnv.gas_price` stays `0`, so the caller debit and basefee burn
 /// (role: accounting) are untouched. Mirrors the `ORIGIN` override,
 /// which likewise reports a value distinct from what the `TxEnv` drives.
-fn etherlink_gasprice<'a, Host, KS, R>(
+fn etherlink_gasprice<'a, 'host, Host, KS, R>(
     context: revm::interpreter::InstructionContext<
         '_,
-        EVMInnerContext<'a, Host, KS, R>,
+        EVMInnerContext<'a, 'host, Host, KS, R>,
         EthInterpreter,
     >,
 ) where
@@ -331,8 +331,8 @@ fn etherlink_gasprice<'a, Host, KS, R>(
 /// the context builders only for cross-runtime origins, so a native EVM
 /// transaction keeps the stock handler (reading the real
 /// `TxEnv.gas_price`) and is left completely untouched.
-fn install_etherlink_gasprice<'a, Host, KS, R, INSP>(
-    evm: &mut EvmInspection<'a, Host, KS, INSP, R>,
+fn install_etherlink_gasprice<'a, 'host, Host, KS, R, INSP>(
+    evm: &mut EvmInspection<'a, 'host, Host, KS, INSP, R>,
 ) where
     Host: KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -349,8 +349,8 @@ fn install_etherlink_gasprice<'a, Host, KS, R, INSP>(
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-fn build_evm_inspector_context<'a, Host, KS, R>(
-    db: EtherlinkVMDB<'a, Host, KS, R>,
+fn build_evm_inspector_context<'a, 'host, Host, KS, R>(
+    db: EtherlinkVMDB<'a, 'host, Host, KS, R>,
     journal: &'a mut TezosXJournal,
     block: &'a BlockEnv,
     tx: &'a TxEnv,
@@ -361,7 +361,7 @@ fn build_evm_inspector_context<'a, Host, KS, R>(
     is_simulation: bool,
     is_cross_runtime: bool,
     alias_delegation: Option<Address>,
-) -> Result<EvmInspection<'a, Host, KS, TracerInspector, R>, EvmRunError>
+) -> Result<EvmInspection<'a, 'host, Host, KS, TracerInspector, R>, EvmRunError>
 where
     Host: KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -411,8 +411,14 @@ where
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-fn build_evm_context<'a, Host, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>(
-    db: EtherlinkVMDB<'a, Host, KS, R>,
+fn build_evm_context<
+    'a,
+    'host,
+    Host,
+    KS,
+    R: Registry<Journal = tezosx_journal::TezosXJournal>,
+>(
+    db: EtherlinkVMDB<'a, 'host, Host, KS, R>,
     journal: &'a mut TezosXJournal,
     block: &'a BlockEnv,
     tx: &'a TxEnv,
@@ -423,7 +429,7 @@ fn build_evm_context<'a, Host, KS, R: Registry<Journal = tezosx_journal::TezosXJ
     is_simulation: bool,
     is_cross_runtime: bool,
     alias_delegation: Option<Address>,
-) -> Result<EvmContext<'a, Host, KS, R>, EvmRunError>
+) -> Result<EvmContext<'a, 'host, Host, KS, R>, EvmRunError>
 where
     Host: KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -470,11 +476,12 @@ where
 /// chain depth carried on `TezosXJournal`.
 fn execute_transaction<
     'a,
+    'host,
     Host,
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    evm_context: &mut EvmContext<'a, Host, KS, R>,
+    evm_context: &mut EvmContext<'a, 'host, Host, KS, R>,
     tx: &'a TxEnv,
     transaction_hash: Option<[u8; TRANSACTION_HASH_SIZE]>,
     is_static_top_frame: bool,
@@ -520,7 +527,7 @@ fn install_alias_delegation<
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    journaled_state: &mut Journal<'_, Host, KS, R>,
+    journaled_state: &mut Journal<'_, '_, Host, KS, R>,
     alias: Option<Address>,
 ) -> Result<(), EvmRunError> {
     if let Some(alias) = alias {
@@ -540,11 +547,12 @@ fn install_alias_delegation<
 #[instrument(skip_all)]
 pub fn run_transaction<
     'a,
+    'host,
     Host,
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    rk: &'a mut RuntimeKeyspaces<Host, KS>,
+    rk: &'a mut RuntimeKeyspaces<'host, Host, KS>,
     registry: &'a R,
     journal: &'a mut TezosXJournal,
     block_constants: &'a BlockConstants,
@@ -779,6 +787,7 @@ mod test {
         public_key::PublicKey,
     };
     use tezos_data_encoding::enc::BinWriter;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::{MockRuntimeKeyspaces, RuntimeKeyspaces};
     use tezos_smart_rollup_host::storage::StorageV1;
     use tezos_smart_rollup_keyspace::KeySpace;
@@ -909,7 +918,7 @@ mod test {
 
             fn ensure_alias<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut TezosXJournal,
                 alias_info: AliasInfo,
                 native_public_key: Option<&[u8]>,
@@ -963,7 +972,7 @@ mod test {
 
             fn alias_exists<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut Self::Journal,
                 target_runtime: RuntimeId,
                 alias: &str,
@@ -1007,7 +1016,7 @@ mod test {
 
             fn read_origin<Host, KS>(
                 &self,
-                rk: &RuntimeKeyspaces<Host, KS>,
+                rk: &RuntimeKeyspaces<'_, Host, KS>,
                 addr_runtime: RuntimeId,
                 addr: &str,
                 budget: tezosx_interfaces::Gas,
@@ -1027,7 +1036,7 @@ mod test {
 
             fn serve<Host, KS>(
                 &self,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 journal: &mut TezosXJournal,
                 request: http::Request<Vec<u8>>,
             ) -> http::Response<Vec<u8>>
@@ -1098,7 +1107,7 @@ mod test {
             fn create_alias<Host, KS>(
                 &self,
                 _registry: &impl RegistryTrait,
-                _rk: &mut RuntimeKeyspaces<Host, KS>,
+                _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 _alias: &str,
                 _alias_info: AliasInfo,
@@ -1114,7 +1123,7 @@ mod test {
 
             fn alias_exists<Host, KS>(
                 &self,
-                _rk: &mut RuntimeKeyspaces<Host, KS>,
+                _rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 _alias: &str,
             ) -> Result<bool, TezosXRuntimeError>
@@ -1138,7 +1147,7 @@ mod test {
             fn serve<Host, KS>(
                 &self,
                 _registry: &impl RegistryTrait,
-                rk: &mut RuntimeKeyspaces<Host, KS>,
+                rk: &mut RuntimeKeyspaces<'_, Host, KS>,
                 _journal: &mut TezosXJournal,
                 request: http::Request<Vec<u8>>,
             ) -> http::Response<Vec<u8>>
@@ -1243,7 +1252,7 @@ mod test {
 
             fn read_origin<Host, KS>(
                 &self,
-                _rk: &RuntimeKeyspaces<Host, KS>,
+                _rk: &RuntimeKeyspaces<'_, Host, KS>,
                 _addr: &str,
                 _budget: tezosx_interfaces::Gas,
             ) -> Result<
@@ -1302,7 +1311,8 @@ mod test {
 
     #[test]
     fn test_simple_transfer() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         let caller =
@@ -1385,7 +1395,8 @@ mod test {
 
     #[test]
     fn test_tezosx_simple_transfer_to_mapped_address() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
 
@@ -1450,7 +1461,8 @@ mod test {
 
     #[test]
     fn test_tezosx_transfer_gateway_to_implicit_address() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
 
@@ -1556,7 +1568,8 @@ mod test {
 
     #[test]
     fn test_contract_call_sload_sstore() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_fees();
 
         let caller =
@@ -1670,7 +1683,8 @@ mod test {
         let callee_bytecode = Bytecode::new_raw(Bytes::from_hex("00").unwrap());
 
         let run_with_journal_depth = |seed_depth: Option<u32>| -> U256 {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let block_constants = BlockConstants::test_block_with_no_fees();
             let caller =
                 Address::from_hex("1111111111111111111111111111111111111111").unwrap();
@@ -1801,7 +1815,8 @@ mod test {
         let callee_bytecode = Bytecode::new_raw(Bytes::from_hex("00").unwrap());
 
         let run_with_credit = |credit: Option<(Address, U256)>| -> Vec<Vec<u8>> {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let block_constants = BlockConstants::test_block_with_no_fees();
             let caller =
                 Address::from_hex("1111111111111111111111111111111111111111").unwrap();
@@ -1912,7 +1927,8 @@ mod test {
 
     #[test]
     fn test_contract_deployment() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_fees();
 
         let caller =
@@ -1998,7 +2014,8 @@ mod test {
 
     #[test]
     fn test_withdrawal_contract() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -2078,7 +2095,8 @@ mod test {
 
     #[test]
     fn test_call_update_sequencer_key() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -2134,7 +2152,7 @@ mod test {
         };
 
         let registry = Registry::new();
-        let submit = |rk: &mut MockRuntimeKeyspaces, calldata: Vec<u8>| {
+        let submit = |rk: &mut MockRuntimeKeyspaces<'_>, calldata: Vec<u8>| {
             let mut journal = TezosXJournal::mock(RuntimeId::Ethereum);
             run_transaction(
                 rk,
@@ -2211,7 +2229,8 @@ mod test {
 
     #[test]
     fn test_call_update_sequencer_key_invalid_point() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -2291,7 +2310,8 @@ mod test {
 
     #[test]
     fn test_call_mint_erc20() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_fees();
 
         let caller =
@@ -2381,7 +2401,8 @@ mod test {
     /// Test the revert behavior of the precompile state changes.
     #[test]
     fn test_revert_precompile_state_changes() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let deploy_call_and_revert_bytecode =
             Bytes::from_hex(CALL_AND_REVERT_INIT_CODE).unwrap();
@@ -2530,7 +2551,8 @@ mod test {
 
     #[test]
     fn test_revert_delete_created_bytecode() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
         let deploy_create_and_revert_bytecode = Bytes::from_hex("0x6080604052348015600e575f5ffd5b506102b38061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610029575f3560e01c80634f8c2d0e1461002d575b5f5ffd5b610047600480360381019061004291906101de565b610049565b005b5f815f523660a05ff09050806040517f9f8aa6e50000000000000000000000000000000000000000000000000000000081526004016100889190610264565b60405180910390fd5b5f604051905090565b5f5ffd5b5f5ffd5b5f5ffd5b5f5ffd5b5f601f19601f8301169050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b6100f0826100aa565b810181811067ffffffffffffffff8211171561010f5761010e6100ba565b5b80604052505050565b5f610121610091565b905061012d82826100e7565b919050565b5f67ffffffffffffffff82111561014c5761014b6100ba565b5b610155826100aa565b9050602081019050919050565b828183375f83830152505050565b5f61018261017d84610132565b610118565b90508281526020810184848401111561019e5761019d6100a6565b5b6101a9848285610162565b509392505050565b5f82601f8301126101c5576101c46100a2565b5b81356101d5848260208601610170565b91505092915050565b5f602082840312156101f3576101f261009a565b5b5f82013567ffffffffffffffff8111156102105761020f61009e565b5b61021c848285016101b1565b91505092915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61024e82610225565b9050919050565b61025e81610244565b82525050565b5f6020820190506102775f830184610255565b9291505056fea264697066735822122053059908becc543c4f8d8f401652f4888f3e356e7d1c6567a4f53fcdf0ea6ea364736f6c634300081e0033").unwrap();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -2618,7 +2640,8 @@ mod test {
 
     #[test]
     fn test_store_and_claim_fa_deposit_wrong_id() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -2688,7 +2711,8 @@ mod test {
 
     #[test]
     fn test_empty_authorization_list_are_prohibited() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         let caller =
@@ -2748,7 +2772,8 @@ mod test {
 
     #[test]
     fn deposit_and_claim_fa_with_empty_proxy() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
         let proxy = Address::from(&[1u8; 20]);
@@ -2843,7 +2868,8 @@ mod test {
     // reverted zero balance must delete the node rather than persist a zero.
     #[test]
     fn test_reverted_fresh_ticket_balance_add_leaves_no_orphan_node() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_no_fees();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
@@ -3009,6 +3035,7 @@ mod test {
         };
         use tezos_crypto_rs::hash::ContractKt1Hash;
         use tezos_ethereum::block::BlockConstants;
+        use tezos_evm_runtime::runtime::MockKernelHost;
         use tezos_evm_runtime::runtime_keyspaces::{
             MockRuntimeKeyspaces, RuntimeKeyspaces,
         };
@@ -3100,7 +3127,7 @@ mod test {
         }
 
         fn execute_fa_bridge(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             call_data: Bytes,
             gas_limit: u64,
@@ -3110,7 +3137,7 @@ mod test {
         }
 
         fn execute_fa_deposit(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             deposit: FaDepositWithProxy,
         ) -> ExecutionOutcome {
@@ -3185,7 +3212,7 @@ mod test {
         }
 
         fn execute_call(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             call_data: Bytes,
             gas_limit: u64,
@@ -3225,7 +3252,7 @@ mod test {
         }
 
         fn deploy_contract(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             calldata: Bytes,
         ) -> Address {
@@ -3281,7 +3308,8 @@ mod test {
 
         #[test]
         fn fa_bridge_precompile_fails_due_to_low_gas_limit() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             // Cover basic costs
@@ -3311,7 +3339,8 @@ mod test {
 
         #[test]
         fn fa_bridge_precompile_fails_due_to_static_call() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3351,7 +3380,8 @@ mod test {
 
         #[test]
         fn fa_bridge_precompile_fails_due_to_delegate_call() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3391,7 +3421,8 @@ mod test {
 
         #[test]
         fn fa_bridge_precompile_succeeds_without_l2_proxy_contract() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let ticket_owner = Address::from([1; 20]);
@@ -3432,7 +3463,8 @@ mod test {
 
         #[test]
         fn fa_bridge_precompile_cannot_call_itself() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3567,7 +3599,8 @@ mod test {
 
         #[test]
         fn fa_deposit_reached_wrapper_contract() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3633,7 +3666,8 @@ mod test {
 
         #[test]
         fn fa_deposit_proxy_state_reverted_if_ticket_balance_overflows() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3683,7 +3717,8 @@ mod test {
 
         #[test]
         fn fa_deposit_refused_non_compatible_interface() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3723,7 +3758,8 @@ mod test {
 
         #[test]
         fn fa_withdrawal_executed_via_l2_proxy_contract() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3839,7 +3875,8 @@ mod test {
 
         #[test]
         fn fa_withdrawal_fails_due_to_insufficient_balance() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
             let caller = Address::from([1; 20]);
@@ -3904,6 +3941,7 @@ mod test {
             primitives::{hex::FromHex, Address, Bytes, U256},
         };
         use tezos_ethereum::block::BlockConstants;
+        use tezos_evm_runtime::runtime::MockKernelHost;
         use tezos_evm_runtime::runtime_keyspaces::{
             MockRuntimeKeyspaces, RuntimeKeyspaces,
         };
@@ -3948,7 +3986,7 @@ mod test {
         }
 
         fn deploy(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             bytecode_hex: &str,
         ) -> Address {
@@ -3983,7 +4021,7 @@ mod test {
         }
 
         fn call_into(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             destination: Address,
             calldata: Bytes,
@@ -4050,7 +4088,8 @@ mod test {
         /// DELEGATECALL/CALLCODE exclusively.
         #[test]
         fn runtime_gateway_rejects_delegate_call_on_call_michelson() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let delegate_caller = deploy(&mut rk, caller, DELEGATE_CALLER_BYTECODE);
@@ -4075,7 +4114,8 @@ mod test {
         /// even view selectors, before any per-selector dispatch.
         #[test]
         fn runtime_gateway_rejects_delegate_call_on_call_michelson_view() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let delegate_caller = deploy(&mut rk, caller, DELEGATE_CALLER_BYTECODE);
@@ -4104,7 +4144,8 @@ mod test {
         /// state-mutating effects forbidden under STATICCALL.
         #[test]
         fn runtime_gateway_rejects_static_call_on_call_michelson() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let static_caller = deploy(&mut rk, caller, STATIC_CALLER_BYTECODE);
@@ -4132,7 +4173,8 @@ mod test {
         /// `burn_gateway_residual`. STATICCALL must revert.
         #[test]
         fn runtime_gateway_rejects_static_call_on_call_post() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let static_caller = deploy(&mut rk, caller, STATIC_CALLER_BYTECODE);
@@ -4163,7 +4205,8 @@ mod test {
         /// residual balance.
         #[test]
         fn runtime_gateway_allows_static_call_on_call_michelson_view() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let static_caller = deploy(&mut rk, caller, STATIC_CALLER_BYTECODE);
@@ -4188,7 +4231,8 @@ mod test {
         /// of `callMichelsonView`. STATICCALL must succeed.
         #[test]
         fn runtime_gateway_allows_static_call_on_call_get() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let static_caller = deploy(&mut rk, caller, STATIC_CALLER_BYTECODE);
@@ -4214,7 +4258,7 @@ mod test {
         /// pre-seeded `cross_runtime_originator`, mirroring an inbound
         /// Michelson → EVM CRAC frame.
         fn call_gateway_with_originator(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             originator: Address,
             calldata: Bytes,
@@ -4264,7 +4308,8 @@ mod test {
         /// between source and sender.
         #[test]
         fn call_michelson_view_forwards_transitive_source_not_immediate_sender() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]); // immediate sender
             let originator = Address::from([2u8; 20]); // transitive source
             fund(rk.eth_accounts_mut(), caller);
@@ -4304,7 +4349,8 @@ mod test {
         /// selector, which shares the read-only forwarding path.
         #[test]
         fn generic_get_forwards_transitive_source_not_immediate_sender() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             let originator = Address::from([2u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
@@ -4356,7 +4402,8 @@ mod test {
         #[test]
         fn call_michelson_view_matches_call_get_payload_slope() {
             fn view_gas(input_len: usize) -> u64 {
-                let mut rk = RuntimeKeyspaces::default();
+                let mut host = MockKernelHost::default();
+                let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
                 let caller = Address::from([1u8; 20]);
                 fund(rk.eth_accounts_mut(), caller);
                 let payload =
@@ -4382,7 +4429,8 @@ mod test {
             }
 
             fn get_gas(body_len: usize) -> u64 {
-                let mut rk = RuntimeKeyspaces::default();
+                let mut host = MockKernelHost::default();
+                let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
                 let caller = Address::from([1u8; 20]);
                 fund(rk.eth_accounts_mut(), caller);
                 let payload = RuntimeGatewayCalls::call(callCall {
@@ -4454,7 +4502,8 @@ mod test {
             const ENTRYPOINT: &str = "foo";
 
             // Typed surface: callMichelson(destination, entrypoint, params).
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([1u8; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let typed = call_into(
@@ -4477,7 +4526,8 @@ mod test {
             let typed_target = cracsent_target_address(&typed);
 
             // Generic surface: call(POST) to the same contract+entrypoint.
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             fund(rk.eth_accounts_mut(), caller);
             let generic = call_into(
                 &mut rk,
@@ -4559,7 +4609,7 @@ mod test {
         // they differ only in the destination (`None` creates a contract)
         // and whether a tracer is attached.
         fn run(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             to: Option<Address>,
             calldata: Bytes,
@@ -4597,7 +4647,7 @@ mod test {
             outcome
         }
 
-        fn deploy(rk: &mut MockRuntimeKeyspaces, caller: Address) -> Address {
+        fn deploy(rk: &mut MockRuntimeKeyspaces<'_>, caller: Address) -> Address {
             let outcome = run(
                 rk,
                 caller,
@@ -4615,7 +4665,7 @@ mod test {
         }
 
         fn run_traced(
-            rk: &mut MockRuntimeKeyspaces,
+            rk: &mut MockRuntimeKeyspaces<'_>,
             caller: Address,
             destination: Address,
             calldata: Bytes,
@@ -4679,7 +4729,8 @@ mod test {
         /// as its own child frame carrying the precompile's real output.
         #[test]
         fn nested_precompile_call_records_real_outcome() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([0x11; 20]);
             fund(rk.eth_accounts_mut(), caller);
             let static_caller = deploy(&mut rk, caller);
@@ -4724,7 +4775,8 @@ mod test {
         /// a single top-level frame carrying the precompile's real output.
         #[test]
         fn top_level_precompile_call_records_real_outcome() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let caller = Address::from([0x11; 20]);
             fund(rk.eth_accounts_mut(), caller);
 
@@ -4791,6 +4843,7 @@ mod test {
         };
         use rlp::Rlp;
         use tezos_ethereum::block::BlockConstants;
+        use tezos_evm_runtime::runtime::MockKernelHost;
         use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
         use tezos_indexable_storage::IndexableStorage;
         use tezos_smart_rollup_host::path::RefPath;
@@ -4851,7 +4904,8 @@ mod test {
 
         #[test]
         fn outer_frame_keeps_its_own_intrinsic_gas_across_crossing() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let registry = Registry::new();
             let block_constants = BlockConstants::test_block_with_no_fees();
             let block = block_env(&block_constants).unwrap();
@@ -5008,7 +5062,8 @@ mod test {
         /// (previewnet block 210148).
         #[test]
         fn nested_frame_does_not_account_intrinsic_gas() {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             let registry = Registry::new();
             let block_constants = BlockConstants::test_block_with_no_fees();
             let block = block_env(&block_constants).unwrap();
@@ -5127,7 +5182,8 @@ mod test {
 
     #[test]
     fn test_osaka_clz_is_enabled() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_constants = BlockConstants::test_block_with_fees();
 
         let caller =
@@ -5208,7 +5264,8 @@ mod test {
     /// and that it points to the AliasForwarder implementation.
     #[test]
     fn test_alias_forwarder_proxy_is_correctly_deployed() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Initialize all precompiles (including AliasForwarder)
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -5285,7 +5342,8 @@ mod test {
     /// Native — a natively signing account cannot become an alias.
     #[test]
     fn test_ensure_alias_refuses_native_tagged_address() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
         let native_address = "tz1NativeTagged";
@@ -5334,7 +5392,8 @@ mod test {
             alias_forwarder_delegation, alias_forwarder_delegation_code_hash,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
         let native_address = "tz1Branch2Forwarder";
@@ -5434,7 +5493,8 @@ mod test {
         use revm::state::{Account, AccountStatus};
         use revm::DatabaseCommit;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block = BlockConstants::test_block_with_no_fees();
         let registry = Registry::new();
 
@@ -5474,7 +5534,8 @@ mod test {
     fn test_alias_materialization_dropped_on_outer_frame_revert() {
         use crate::precompiles::constants::alias_forwarder_delegation_code_hash;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
         let native_address = "tz1OuterRevertForwarder";
@@ -5567,7 +5628,8 @@ mod test {
         use crate::journal::{CrossRuntimeCall, Journal};
         use tezosx_interfaces::{Origin, RuntimeId};
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let source = Address::from_slice(&[0xab; 20]);
 
         // Durable fallback classification: a distinct native address.
@@ -5651,7 +5713,8 @@ mod test {
         use tezos_smart_rollup_host::path::OwnedPath;
         use tezos_smart_rollup_host::storage::StorageV1;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = Registry::new();
         let block_constants = BlockConstants::test_block_with_no_fees();
 
@@ -5774,7 +5837,7 @@ mod test {
     /// operation: materialization is staged in the journal and only becomes
     /// durable at commit.
     fn materialize_alias(
-        rk: &mut MockRuntimeKeyspaces,
+        rk: &mut MockRuntimeKeyspaces<'_>,
         block_constants: &BlockConstants,
         native_address: &str,
     ) -> (Address, Registry, TezosXJournal) {
@@ -5831,7 +5894,8 @@ mod test {
     /// the alias instead of being forwarded.
     #[test]
     fn test_alias_materialization_leaves_preexisting_balance_resident() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
 
@@ -5880,7 +5944,8 @@ mod test {
     /// to the associated Tezos account via the AliasForwarder contract.
     #[test]
     fn test_alias_forwarder_forwards_funds_after_creation() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
 
@@ -6007,7 +6072,8 @@ mod test {
     /// sweeps payment and residue together in the same forward.
     #[test]
     fn test_alias_forwarder_sweeps_payment_plus_resident_balance() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -6080,7 +6146,8 @@ mod test {
     /// residue sweeps the residue on its own, with no payment attached.
     #[test]
     fn test_alias_forwarder_zero_value_poke_sweeps_resident_balance() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -6142,7 +6209,8 @@ mod test {
     /// is a no-op: no forward, no event, no failure.
     #[test]
     fn test_alias_forwarder_zero_value_poke_on_empty_alias_is_noop() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -6195,7 +6263,8 @@ mod test {
     /// gateway, so the forwarder leaves it resident instead of forwarding.
     #[test]
     fn test_alias_forwarder_leaves_sub_mutez_balance_resident_on_poke() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -6255,7 +6324,8 @@ mod test {
     /// the Rust-side constant and the Solidity gate it mirrors drift apart.
     #[test]
     fn test_alias_forwarder_sweeps_balance_at_exactly_one_mutez_on_poke() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
@@ -6317,7 +6387,8 @@ mod test {
     /// drift apart.
     #[test]
     fn test_alias_forwarder_leaves_balance_below_one_mutez_resident_on_poke() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut block_constants = BlockConstants::test_block_with_no_fees();
         block_constants.tezos_experimental_features = true;
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();

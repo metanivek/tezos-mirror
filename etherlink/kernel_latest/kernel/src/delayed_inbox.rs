@@ -212,7 +212,7 @@ impl DelayedInbox {
 
     pub fn save_transaction<Host, KS>(
         &mut self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         tx: TezosXTransaction,
         timestamp: Timestamp,
         level: u32,
@@ -436,6 +436,7 @@ mod tests {
     use crate::storage::read_last_info_per_level_timestamp;
     use crate::transaction::Transaction;
     use primitive_types::{H160, H256, U256};
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
     use tezos_smart_rollup_encoding::timestamp::Timestamp;
 
@@ -492,7 +493,8 @@ mod tests {
 
     #[test]
     fn test_delayed_inbox_roundtrip() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
 
@@ -522,7 +524,8 @@ mod tests {
 
     #[test]
     fn test_delayed_inbox_tezos_roundtrip() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
 
@@ -564,7 +567,8 @@ mod tests {
     /// A delayed operation with a stale/foreign branch is dropped at entry, not saved.
     #[test]
     fn test_delayed_inbox_tezos_dropped_on_stale_branch() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
 
@@ -602,7 +606,8 @@ mod tests {
 
     #[test]
     fn test_delayed_inbox_roundtrip_error_non_delayed() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let mut delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
 
@@ -635,7 +640,8 @@ mod tests {
         use tezos_smart_rollup_host::storage::StorageV1;
         use tezos_smart_rollup_keyspace::extensions::KeySpaceExtNum;
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         assert_eq!(
             rk.base().get_le_or(

@@ -4,7 +4,7 @@
 
 use crate::{
     fixture::{Account, Env, Fixtures, NamedFixture, PostEntry, TestCase},
-    helpers::{extract_brackets, prepare_rk, pretty, u256_to_u128},
+    helpers::{extract_brackets, prepare_host, pretty, u256_to_u128},
 };
 use revm::{
     context::{result::ExecutionResult, transaction::AccessList},
@@ -26,6 +26,7 @@ use std::{
 };
 use structopt::StructOpt;
 use tezos_ethereum::block::{BlockConstants, BlockFees};
+use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
 use tezos_smart_rollup_keyspace::KeySpace;
 use tezosx_journal::{RuntimeId, TezosXJournal};
 
@@ -373,7 +374,6 @@ pub fn main() {
         )
     };
 
-    let mut rk;
     let registry = kernel::registry_impl::RegistryImpl::default();
 
     for NamedFixture { path, fixtures } in fixtures {
@@ -406,7 +406,8 @@ pub fn main() {
 
             for (spec_name, post_entrys) in post {
                 for PostEntry { state, indexes, .. } in post_entrys {
-                    rk = prepare_rk();
+                    let mut host = prepare_host();
+                    let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
                     fill_state(rk.eth_accounts_mut(), pre.clone());
                     let spec_id = spec_name.clone().into();
                     write_out!(output_file, "EVM spec: {spec_name:?}");

@@ -109,7 +109,7 @@ pub fn can_fit_in_reboot(
 
 #[allow(clippy::too_many_arguments)]
 pub fn compute<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     chain_config: &TezosXChainConfig,
     outbox_queue: &OutboxQueue<'_, impl Path>,
@@ -282,7 +282,7 @@ fn get_next_bip_info(base: &impl KeySpace) -> (U256, Timestamp, EVMBlockHeader) 
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "benchmark", inline(never))]
 fn build_next_bip_from_blueprints<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     chain_config: &TezosXChainConfig,
     next_bip_number: U256,
     timestamp: Timestamp,
@@ -333,7 +333,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 pub fn compute_bip<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     chain_config: &TezosXChainConfig,
     outbox_queue: &OutboxQueue<'_, impl Path>,
@@ -393,7 +393,7 @@ where
 }
 
 fn revert_block<Host, KS>(
-    rk: &mut RuntimeKeyspaces<SafeStorage<&mut Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, SafeStorage<&mut Host>, KS>,
     block_in_progress_provenance: &BlockInProgressProvenance,
     number: U256,
     error: anyhow::Error,
@@ -511,7 +511,7 @@ fn clean_delayed_transactions(
 
 #[allow(clippy::too_many_arguments)]
 pub fn promote_block<Host, KS>(
-    rk: &mut RuntimeKeyspaces<SafeStorage<&mut Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, SafeStorage<&mut Host>, KS>,
     outbox_queue: &OutboxQueue<'_, impl Path>,
     block_in_progress_provenance: &BlockInProgressProvenance,
     block_header: BlockHeader<ChainHeader>,
@@ -555,7 +555,7 @@ where
 #[trace_kernel("stage_two")]
 #[allow(clippy::too_many_arguments)]
 pub fn produce<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     chain_config: &TezosXChainConfig,
     config: &mut Configuration,
     sequencer_pool_address: Option<H160>,
@@ -593,10 +593,9 @@ where
     // interrupted block leaves it under `/tmp`, so this read goes through the
     // failsafe mirror. The mirror borrows the handle and the blueprint branch
     // below works on the live host, so its borrow is scoped to the read.
-    let resumed = {
-        let safe_rk = rk.to_safe_host(world_states.clone());
-        read_block_in_progress(safe_rk.host())?
-    };
+    let resumed = rk.with_safe_host(world_states.clone(), |safe_rk| {
+        read_block_in_progress(safe_rk.host())
+    })?;
 
     let (block_in_progress_provenance, block_in_progress) = match resumed {
         Some(block_in_progress) => {
@@ -641,107 +640,114 @@ where
         }
     };
 
-    let mut safe_rk = rk.to_safe_host(world_states);
-    if let BlockInProgressProvenance::Blueprint = block_in_progress_provenance {
-        // We are going to execute a new block, we copy the storage to allow
-        // to revert if the block fails.
-        safe_rk.host_mut().start()?;
-        // Open a keyspace frame alongside the `/tmp` copy.
-        safe_rk.checkpoint()?;
-    }
+    let (result, key_change_at) =
+        rk.with_safe_host(world_states, |safe_rk| -> anyhow::Result<_> {
+            if let BlockInProgressProvenance::Blueprint = block_in_progress_provenance {
+                // We are going to execute a new block, we copy the storage to allow
+                // to revert if the block fails.
+                safe_rk.host_mut().start()?;
+                // Open a keyspace frame alongside the `/tmp` copy.
+                safe_rk.checkpoint()?;
+            }
 
-    let processed_blueprint = block_in_progress.number;
-    let computation_result = compute_bip(
-        &mut safe_rk,
-        &registry,
-        chain_config,
-        &outbox_queue,
-        block_in_progress,
-        sequencer_pool_address,
-        tracer_input,
-        da_fee_per_byte,
-        coinbase,
-        chain_header,
-        http_trace_enabled,
-    );
-
-    match computation_result {
-        Ok(BlockComputationResult::Finished {
-            included_delayed_transactions,
-            block,
-        }) => {
-            let timestamp = block.timestamp();
-            promote_block(
-                &mut safe_rk,
+            let processed_blueprint = block_in_progress.number;
+            let computation_result = compute_bip(
+                safe_rk,
+                &registry,
+                chain_config,
                 &outbox_queue,
-                &block_in_progress_provenance,
-                block.header(),
-                config,
-                included_delayed_transactions,
-            )?;
-            // Write sunrise_level only after the block has been committed, so
-            // it is atomic with the Tezos genesis block existing in storage.
-            if chain_config.is_tezos_runtime_enabled(processed_blueprint)
-                && crate::storage::read_michelson_runtime_sunrise_level(
-                    safe_rk.host().host,
-                )
-                .is_none()
-            {
-                crate::storage::store_michelson_runtime_sunrise_level(
-                    safe_rk.host_mut().host,
-                    processed_blueprint,
-                )?;
-                // L2-1526: seed the shared Michelson alias implementation
-                // when the runtime activates on a fresh network. Migrations
-                // only run on upgrades, so this is the genesis seeding point.
-                // Like the sunrise_level write above, this runs after the
-                // block has been promoted, so the slot is first reflected in
-                // the *next* block's Michelson state_root (its content is
-                // rooted under /tez/tez_accounts). It is identical across all
-                // replicas and idempotent.
-                tezosx_tezos_runtime::alias_forwarder::init_alias_implementation(
-                    safe_rk.host_mut().host,
-                )
-                .map_err(|e| {
-                    anyhow::anyhow!("seeding alias implementation failed: {e}")
-                })?;
-                // Seed the address registry (null address at index 0) when
-                // the runtime activates on a fresh network. Activation is the
-                // only seeding point.
-                tezos_execution::mir_ctx::init_address_registry(safe_rk.host_mut().host)
-                    .map_err(|e| {
-                        anyhow::anyhow!("seeding address registry failed: {e}")
-                    })?;
-            }
-            // The mirror is promoted, so its `/tmp` copy is gone: the
-            // sequencer key change runs on the live host.
-            upgrade::possible_sequencer_key_change(rk, timestamp)?;
+                block_in_progress,
+                sequencer_pool_address,
+                tracer_input,
+                da_fee_per_byte,
+                coinbase,
+                chain_header,
+                http_trace_enabled,
+            );
 
-            if config.common.evm_node_flag {
-                Ok(ComputationResult::Finished)
-            } else {
-                Ok(ComputationResult::RebootNeeded)
+            match computation_result {
+                Ok(BlockComputationResult::Finished {
+                    included_delayed_transactions,
+                    block,
+                }) => {
+                    let timestamp = block.timestamp();
+                    promote_block(
+                        safe_rk,
+                        &outbox_queue,
+                        &block_in_progress_provenance,
+                        block.header(),
+                        config,
+                        included_delayed_transactions,
+                    )?;
+                    // Write sunrise_level only after the block has been committed, so
+                    // it is atomic with the Tezos genesis block existing in storage.
+                    if chain_config.is_tezos_runtime_enabled(processed_blueprint)
+                        && crate::storage::read_michelson_runtime_sunrise_level(
+                            safe_rk.host().host,
+                        )
+                        .is_none()
+                    {
+                        crate::storage::store_michelson_runtime_sunrise_level(
+                            safe_rk.host_mut().host,
+                            processed_blueprint,
+                        )?;
+                        // L2-1526: seed the shared Michelson alias implementation
+                        // when the runtime activates on a fresh network. Migrations
+                        // only run on upgrades, so this is the genesis seeding point.
+                        // Like the sunrise_level write above, this runs after the
+                        // block has been promoted, so the slot is first reflected in
+                        // the *next* block's Michelson state_root (its content is
+                        // rooted under /tez/tez_accounts). It is identical across all
+                        // replicas and idempotent.
+                        tezosx_tezos_runtime::alias_forwarder::init_alias_implementation(
+                            safe_rk.host_mut().host,
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!("seeding alias implementation failed: {e}")
+                        })?;
+                        // Seed the address registry (null address at index 0) when
+                        // the runtime activates on a fresh network. Activation is the
+                        // only seeding point.
+                        tezos_execution::mir_ctx::init_address_registry(
+                            safe_rk.host_mut().host,
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!("seeding address registry failed: {e}")
+                        })?;
+                    }
+                    let result = if config.common.evm_node_flag {
+                        ComputationResult::Finished
+                    } else {
+                        ComputationResult::RebootNeeded
+                    };
+                    Ok((result, Some(timestamp)))
+                }
+                Ok(BlockComputationResult::RebootNeeded) => {
+                    // The computation will resume at next reboot, we leave the
+                    // storage untouched.
+                    Ok((ComputationResult::RebootNeeded, None))
+                }
+                Err(err) => {
+                    revert_block(
+                        safe_rk,
+                        &block_in_progress_provenance,
+                        processed_blueprint,
+                        err,
+                    )?;
+                    // The block was reverted because it failed. We don't know at
+                    // which point did it fail nor why. We cannot make assumption
+                    // on how many ticks it consumed before failing. Therefore
+                    // the safest solution is to simply reboot after a failure.
+                    Ok((ComputationResult::RebootNeeded, None))
+                }
             }
-        }
-        Ok(BlockComputationResult::RebootNeeded) => {
-            // The computation will resume at next reboot, we leave the
-            // storage untouched.
-            Ok(ComputationResult::RebootNeeded)
-        }
-        Err(err) => {
-            revert_block(
-                &mut safe_rk,
-                &block_in_progress_provenance,
-                processed_blueprint,
-                err,
-            )?;
-            // The block was reverted because it failed. We don't know at
-            // which point did it fail nor why. We cannot make assumption
-            // on how many ticks it consumed before failing. Therefore
-            // the safest solution is to simply reboot after a failure.
-            Ok(ComputationResult::RebootNeeded)
-        }
+        })?;
+    // The mirror is promoted, so its `/tmp` copy is gone: the sequencer key
+    // change runs on the live host.
+    if let Some(timestamp) = key_change_at {
+        upgrade::possible_sequencer_key_change(rk, timestamp)?;
     }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -792,6 +798,7 @@ mod tests {
     };
     use tezos_ethereum::tx_common::EthereumTransactionCommon;
     use tezos_evm_runtime::extensions::WithGas;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::safe_storage::ETHERLINK_SAFE_STORAGE_ROOT_PATH;
     use tezos_execution::context;
     use tezos_smart_rollup_keyspace::KeySpaceLoader;
@@ -1202,8 +1209,9 @@ mod tests {
         Ok(())
     }
 
-    fn produce_block_with_several_valid_txs<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>)
-    where
+    fn produce_block_with_several_valid_txs<Host, KS>(
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
+    ) where
         Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,
         KS: SafeKeyspace,
     {
@@ -1251,7 +1259,7 @@ mod tests {
     }
 
     fn dummy_tezosx_config_with_tezos_runtime<Host, KS>(
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     ) -> TezosXChainConfig
     where
         Host: StorageV1 + KeySpaceLoader,
@@ -1281,7 +1289,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Store bootstrap2 in the tezlink context to ensure the
         // Tezlink context is not empty and can thus be backed up
@@ -1343,7 +1352,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Store bootstrap2 in the tezlink context to ensure the
         // Tezlink context is not empty and can thus be backed up
@@ -1483,7 +1493,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the low-fee reveal operation is not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1558,7 +1569,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the low-fee operations are not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1687,7 +1699,8 @@ mod tests {
             get_tezos_account_info, set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
         let chain_config = dummy_tezosx_config_with_tezos_runtime(&mut rk);
@@ -1785,7 +1798,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // Disable DA fees so the test operations are not rejected.
         storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
 
@@ -1943,7 +1957,8 @@ mod tests {
         // internal-op count seeded to `base`. Returns whether the top-level
         // operation was `Applied`.
         let run = |base: u128| {
-            let mut rk = RuntimeKeyspaces::default();
+            let mut host = MockKernelHost::default();
+            let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
             storage::store_da_fee(rk.host_mut(), U256::zero()).unwrap();
             store_block_fees(rk.host_mut(), &dummy_block_fees()).unwrap();
 
@@ -2110,7 +2125,8 @@ mod tests {
     #[test]
     // Test if the invalid transactions are producing receipts
     fn test_invalid_transactions_receipt_status() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2148,7 +2164,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a success status
     fn test_valid_transactions_receipt_status() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2190,7 +2207,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a contract address
     fn test_valid_transactions_receipt_contract_address() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx_hash = [0; TRANSACTION_HASH_SIZE];
         let tx = dummy_eth_transaction_deploy();
@@ -2238,7 +2256,8 @@ mod tests {
     #[test]
     // Test if several valid transactions can be performed
     fn test_several_valid_transactions() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2257,7 +2276,8 @@ mod tests {
     #[test]
     // Test if several valid proposals can produce valid blocks
     fn test_several_valid_proposals() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -2319,7 +2339,8 @@ mod tests {
     #[test]
     // Test transfers gas consumption consistency
     fn test_cumulative_transfers_gas_consumption() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let base_gas = U256::from(21000);
         let dummy_block_fees = dummy_block_fees();
@@ -2380,7 +2401,8 @@ mod tests {
     // Test if we're able to read current block (with a filled queue) after
     // a block production
     fn test_read_storage_current_block_after_block_production_with_filled_queue() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         produce_block_with_several_valid_txs(&mut rk);
 
@@ -2390,7 +2412,8 @@ mod tests {
     #[test]
     // Test that the same transaction can not be replayed twice
     fn test_replay_attack() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let tx = Transaction {
             tx_hash: [0; TRANSACTION_HASH_SIZE],
@@ -2433,7 +2456,9 @@ mod tests {
         assert_eq!(sender_balance, expected_sender_balance, "sender balance");
     }
 
-    fn first_block<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> TezosXBlockConstants
+    fn first_block<Host, KS>(
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
+    ) -> TezosXBlockConstants
     where
         Host: StorageV1 + KeySpaceLoader,
         KS: SafeKeyspace,
@@ -2465,7 +2490,8 @@ mod tests {
     #[test]
     fn test_stop_computation() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let block_constants = first_block(&mut rk);
 
@@ -2563,7 +2589,8 @@ mod tests {
             set_tezos_account_info, TezosAccountInfo,
         };
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Allocate bootstrap2 in Tezlink storage so the SafeStorage
         // backup of TEZOS_ACCOUNTS_ROOT succeeds,
@@ -2686,7 +2713,8 @@ mod tests {
 
     #[test]
     fn invalid_transaction_should_bump_nonce() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let caller =
             address_from_str("f95abdf6ede4c3703e0e9453771fbee8592d31e9").unwrap();
@@ -2757,7 +2785,8 @@ mod tests {
 
     #[test]
     fn test_first_blocks() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         // SafeStorage::start()'s store_copy needs each safe root to exist.
         init_safe_storage_roots(rk.host_mut());
 
@@ -2870,7 +2899,8 @@ mod tests {
     #[test]
     fn test_reboot_many_tx_one_proposal() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // sanity check: no current block
         assert!(
@@ -2931,8 +2961,10 @@ mod tests {
         matches!(computation_result, ComputationResult::RebootNeeded);
 
         // The block is in progress, therefore it is in the safe storage.
-        let safe_rk = rk.to_safe_host(chain_config.world_states(U256::zero()));
-        let bip = read_block_in_progress(safe_rk.host())
+        let bip = rk
+            .with_safe_host(chain_config.world_states(U256::zero()), |safe_rk| {
+                read_block_in_progress(safe_rk.host())
+            })
             .expect("Should be able to read the block in progress")
             .expect("The reboot context should have a block in progress");
 
@@ -2954,7 +2986,8 @@ mod tests {
     #[test]
     fn test_reboot_many_tx_many_proposal() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
@@ -3026,8 +3059,10 @@ mod tests {
         matches!(computation_result, ComputationResult::RebootNeeded);
 
         // The block is in progress, therefore it is in the safe storage.
-        let safe_rk = rk.to_safe_host(chain_config.world_states(U256::zero()));
-        let bip = read_block_in_progress(safe_rk.host())
+        let bip = rk
+            .with_safe_host(chain_config.world_states(U256::zero()), |safe_rk| {
+                read_block_in_progress(safe_rk.host())
+            })
             .expect("Should be able to read the block in progress")
             .expect("The reboot context should have a block in progress");
 
@@ -3059,7 +3094,8 @@ mod tests {
         // address.
 
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // see
         // https://basescan.org/tx/0x07471adfe8f4ec553c1199f495be97fc8be8e0626ae307281c22534460184ed1
@@ -3125,7 +3161,8 @@ mod tests {
     // hardened, the error propagated as a block-level failure and the whole
     // forced blueprint was reverted, halting the chain.
     fn test_delayed_empty_eip7702_authorization_list_does_not_abort_block() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -3191,7 +3228,8 @@ mod tests {
     #[test]
     // Test if a valid transaction is producing a receipt with a success status
     fn test_type_propagation() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         crate::storage::store_minimum_base_fee_per_gas(
             rk.host_mut(),
             DUMMY_BASE_FEE_PER_GAS.into(),
@@ -3260,7 +3298,8 @@ mod tests {
             (protocol, next_protocol)
         }
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let chain_config = dummy_tezosx_config_with_tezos_runtime(&mut rk);
         let mut config = dummy_configuration();
@@ -3321,7 +3360,8 @@ mod tests {
         // returned Ok(true) for all Tezos operations regardless of gas,
         // so this test would see Finished instead of RebootNeeded.
 
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let block_constants = first_block(&mut rk);
 

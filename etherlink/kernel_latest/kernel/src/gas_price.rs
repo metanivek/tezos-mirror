@@ -167,6 +167,7 @@ mod test {
     use revm::primitives::hardfork::SpecId;
     use std::collections::VecDeque;
     use tezos_ethereum::block::BlockConstants;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
     use tezos_smart_rollup_host::storage::StorageV1;
 
@@ -198,7 +199,8 @@ mod test {
 
     #[test]
     fn gas_price_responds_to_load() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let timestamp = 0_i64;
         let block_fees = crate::retrieve_block_fees(rk.host_mut()).unwrap();
         let dummy_block_constants = TezosXBlockConstants {

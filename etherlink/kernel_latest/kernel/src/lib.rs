@@ -102,7 +102,7 @@ where
 #[trace_kernel]
 #[cfg_attr(feature = "benchmark", inline(never))]
 pub fn stage_one<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     smart_rollup_address: [u8; 20],
     chain_config: &chains::TezosXChainConfig,
     configuration: &mut Configuration,
@@ -219,7 +219,7 @@ where
     Ok(block_fees)
 }
 
-pub fn run<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> Result<(), anyhow::Error>
+pub fn run<Host, KS>(rk: &mut RuntimeKeyspaces<'_, Host, KS>) -> Result<(), anyhow::Error>
 where
     Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,
     KS: SafeKeyspace,
@@ -260,7 +260,7 @@ pub enum SingleRunStatus {
 }
 
 pub fn single_run<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
 ) -> Result<SingleRunStatus, anyhow::Error>
 where
     Host: HostReveal + WasmHost + WithGas + KeyspaceHost<KS>,
@@ -392,14 +392,14 @@ pub fn kernel<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + HostReveal + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
 
     let reboot_counter = rk
         .host()
@@ -485,6 +485,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+    use tezos_evm_runtime::runtime::MockKernelHost;
 
     use crate::block_storage::internal_for_tests::read_transaction_receipt_status;
     use crate::fees;
@@ -569,7 +570,8 @@ mod tests {
     #[test]
     fn load_block_fees_new() {
         // Arrange
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // Act
         let result = crate::retrieve_block_fees(rk.host_mut());
@@ -591,7 +593,8 @@ mod tests {
             RefPath::assert_from(b"/evm/world_state/fees/minimum_base_fee_per_gas");
 
         // Arrange
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         let min_base_fee = U256::from(17);
         tezos_storage::write_u256_le(rk.host_mut(), &min_path, min_base_fee).unwrap();
@@ -610,7 +613,8 @@ mod tests {
     #[test]
     fn test_xtz_withdrawal_applied() {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .store_write_all(
                 &NATIVE_TOKEN_TICKETER_PATH,
@@ -724,7 +728,8 @@ mod tests {
 
     fn send_fa_deposit(enable_fa_bridge: bool) -> Option<TransactionStatus> {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // enable FA bridge feature
         if enable_fa_bridge {
@@ -817,7 +822,8 @@ mod tests {
 
     fn send_fa_withdrawal(enable_fa_bridge: bool) -> Vec<Vec<u8>> {
         // init host
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
 
         // enable FA bridge feature
         if enable_fa_bridge {

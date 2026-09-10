@@ -80,18 +80,19 @@ impl EtherlinkPrecompiles {
             || (self.enable_debug_precompiles && DEBUGS.contains(address))
     }
 
-    fn run_custom_precompile<'j, CTX, Host, KS, R>(
+    fn run_custom_precompile<'j, 'host, CTX, Host, KS, R>(
         &mut self,
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Result<Option<InterpreterResult>, CustomPrecompileAbort>
     where
-        Host: KeyspaceHost<KS> + 'j,
+        'host: 'j,
+        Host: KeyspaceHost<KS> + 'host,
         KS: SafeKeyspace + 'j,
         R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
         CTX: ContextTr<
-            Db = EtherlinkVMDB<'j, Host, KS, R>,
-            Journal = Journal<'j, Host, KS, R>,
+            Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+            Journal = Journal<'j, 'host, Host, KS, R>,
         >,
     {
         // NIT: can probably do this more efficiently by keeping an immutable
@@ -156,14 +157,15 @@ impl EtherlinkPrecompiles {
     }
 }
 
-impl<'j, CTX, Host, KS, R> PrecompileProvider<CTX> for EtherlinkPrecompiles
+impl<'j, 'host, CTX, Host, KS, R> PrecompileProvider<CTX> for EtherlinkPrecompiles
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     type Output = InterpreterResult;

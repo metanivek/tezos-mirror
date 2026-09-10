@@ -613,7 +613,8 @@ mod tests {
     /// has been enabled.
     #[test]
     fn v56_migration_clears_tezosx_caller_balance_on_tezosx_networks() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let host = rk.host_mut();
 
         // Mark this host as a TezosX network — the migration is gated on
@@ -662,7 +663,8 @@ mod tests {
     /// elsewhere — and we don't want to touch unrelated state).
     #[test]
     fn v56_migration_is_a_no_op_on_non_tezosx_networks() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         // Do NOT set ENABLE_TEZOS_RUNTIME.
 
         let status = migrate_to(rk.host_mut(), StorageVersion::V56).unwrap();
@@ -736,7 +738,8 @@ mod tests {
     /// imprinted (fresh TezosX network that activated post-fix).
     #[test]
     fn v56_migration_is_safe_when_no_bug_state_exists() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         rk.host_mut()
             .store_write_all(&crate::storage::ENABLE_TEZOS_RUNTIME, &[1u8])
             .unwrap();

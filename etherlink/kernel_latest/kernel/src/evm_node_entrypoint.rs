@@ -83,14 +83,14 @@ pub fn populate_delayed_inbox_with_durable_storage<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let payload = rk.base().get(&DELAYED_INPUT_KEY).unwrap();
     let transaction = Transaction::from_rlp_bytes(&payload).unwrap().into();
     let mut delayed_inbox = DelayedInbox::from_base(rk.base()).unwrap();
@@ -112,14 +112,14 @@ pub fn drop_delayed_transaction_with_durable_storage<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let payload = rk.base().get(&DELAYED_INPUT_KEY).unwrap();
     let transaction_hash: TransactionHash = decode_tx_hash(Rlp::new(&payload)).unwrap();
     let mut delayed_inbox = DelayedInbox::from_base(rk.base()).unwrap();
@@ -139,14 +139,14 @@ pub fn single_tx_execution_fn<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let tx_input = match sub_block::read_single_tx_execution_input(rk.base_mut()) {
         Ok(Some(input)) => input,
         Ok(None) => {
@@ -189,14 +189,14 @@ pub fn assemble_block_fn<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let assemble_block_input = match sub_block::read_assemble_block_input(rk.base_mut()) {
         Ok(Some(input)) => input,
         Ok(None) => {
@@ -228,14 +228,14 @@ pub fn tezosx_simulate_fn<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let input = match rk.base().get(&TEZOSX_SIMULATION_INPUT_KEY) {
         Some(bytes) => bytes,
         None => {
@@ -552,14 +552,14 @@ pub fn tezosx_michelson_entrypoints_entry<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     tezosx_michelson_entrypoints_fn(&mut rk);
 }
 
@@ -567,7 +567,7 @@ where
 /// load, so no second one is nested inside this query.
 #[allow(dead_code)]
 pub fn tezosx_michelson_entrypoints_fn<Host, R, KS>(
-    rk: &mut RuntimeKeyspaces<KernelHost<R, Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, KernelHost<R, Host>, KS>,
 ) where
     R: StorageV1,
     Host: std::borrow::BorrowMut<R> + std::borrow::Borrow<R>,
@@ -673,14 +673,14 @@ pub fn tezosx_run_code_fn<Host>(host: &mut Host)
 where
     Host: StorageV1 + CoreStorage + WasmHost,
 {
-    let mut rk: RuntimeKeyspaces<KernelHost<Host, &mut Host>, _> =
-        match RuntimeKeyspaces::init(host) {
-            Ok(rk) => rk,
-            Err(err) => {
-                log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
-                return;
-            }
-        };
+    let mut kernel_host: KernelHost<Host, &mut Host> = KernelHost::init(host);
+    let mut rk = match RuntimeKeyspaces::init(&mut kernel_host) {
+        Ok(rk) => rk,
+        Err(err) => {
+            log!(Error, "Failed to init the runtime keyspaces: {:?}", err);
+            return;
+        }
+    };
     let result = match rk.base().get(&TEZOSX_RUN_CODE_INPUT_KEY) {
         // Reported through the error channel rather than leaving the node
         // to fail on an absent result key. `Host`, not `Execution`: the
@@ -776,7 +776,7 @@ fn run_code_params(
 /// Decode and validate the input, build the block environment, and run
 /// the script.
 fn run_code_from_input<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     payload: &[u8],
 ) -> Result<tezos_execution::RunCodeOutput, tezos_execution::RunCodeError>
 where
@@ -847,37 +847,39 @@ where
 
     // The roots an applied Michelson operation snapshots, unnarrowed:
     // nothing here proves the run touches accounts only.
-    let mut safe_rk = rk.to_safe_host(
+    rk.with_safe_host(
         block_constants
             .michelson_runtime_block_constants
             .safe_roots
             .clone(),
-    );
-    safe_rk.host_mut().start().map_err(|err| {
-        RunCodeError::Host(format!("cannot snapshot the state: {err:?}"))
-    })?;
-    // Open a keyspace frame alongside the `/tmp` copy.
-    safe_rk
-        .checkpoint()
-        .map_err(|err| RunCodeError::Host(format!("cannot frame the state: {err:?}")))?;
+        |safe_rk| {
+            safe_rk.host_mut().start().map_err(|err| {
+                RunCodeError::Host(format!("cannot snapshot the state: {err:?}"))
+            })?;
+            // Open a keyspace frame alongside the `/tmp` copy.
+            safe_rk.checkpoint().map_err(|err| {
+                RunCodeError::Host(format!("cannot frame the state: {err:?}"))
+            })?;
 
-    let result =
-        tezos_execution::run_code(&mut safe_rk, &registry, &mut journal, &params);
+            let result =
+                tezos_execution::run_code(safe_rk, &registry, &mut journal, &params);
 
-    // The `/tmp` copy and the keyspace frames cover disjoint roots: revert
-    // both.
-    match (result, safe_rk.revert_both()) {
-        (result, Ok(())) => result,
-        // A failed revert makes the simulation result unusable.
-        (Ok(_), Err(why)) => Err(RunCodeError::Host(format!(
-            "cannot revert the simulation: {why}"
-        ))),
-        // The run's own error is the one the caller asked about.
-        (Err(run_err), Err(why)) => {
-            log!(Error, "Reverting the run_code simulation failed: {}", why);
-            Err(run_err)
-        }
-    }
+            // The `/tmp` copy and the keyspace frames cover disjoint roots: revert
+            // both.
+            match (result, safe_rk.revert_both()) {
+                (result, Ok(())) => result,
+                // A failed revert makes the simulation result unusable.
+                (Ok(_), Err(why)) => Err(RunCodeError::Host(format!(
+                    "cannot revert the simulation: {why}"
+                ))),
+                // The run's own error is the one the caller asked about.
+                (Err(run_err), Err(why)) => {
+                    log!(Error, "Reverting the run_code simulation failed: {}", why);
+                    Err(run_err)
+                }
+            }
+        },
+    )
 }
 
 /// Query the entrypoints and synthetic views of a contract and write
@@ -892,7 +894,7 @@ where
 ///
 /// Input: binary-encoded contract AddressHash (22 bytes).
 fn handle_query_entrypoints_to<Host, R, KS>(
-    rk: &mut RuntimeKeyspaces<KernelHost<R, Host>, KS>,
+    rk: &mut RuntimeKeyspaces<'_, KernelHost<R, Host>, KS>,
     payload: &[u8],
     result_key: &Key,
 ) where
@@ -1040,6 +1042,7 @@ fn encode_entrypoints_result(
 mod tests {
     use mir::ast::{Entrypoint, Micheline, Type};
     use mir::gas::Gas;
+    use tezos_evm_runtime::runtime::MockKernelHost;
 
     /// The pinned vectors freeze the wire format shared with the node's
     /// `Run_code` module (`tezos_backend.ml`), which pins the same ones
@@ -1542,7 +1545,8 @@ mod tests {
         // The node seeds the input and reads the result through the `/base`
         // keyspace, and `tezosx_michelson_entrypoints_fn` consumes/produces
         // them the same way.
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         rk.base_mut()
             .set(&TEZOSX_ENTRYPOINTS_INPUT_KEY, addr_hash)
             .expect("write input");

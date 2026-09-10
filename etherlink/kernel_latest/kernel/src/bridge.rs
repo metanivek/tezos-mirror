@@ -482,7 +482,7 @@ fn build_deposit_event(
 #[allow(clippy::too_many_arguments)]
 #[trace_kernel]
 pub fn apply_tezosx_xtz_deposit<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     deposit: &Deposit,
     block_constants: &BlockConstants,
@@ -695,6 +695,7 @@ mod tests {
         rlp_helpers::{append_option_explicit, append_u256_le},
         transaction::TRANSACTION_HASH_SIZE,
     };
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_protocol::contract::Contract;
     use tezos_smart_rollup::michelson::{
         ticket::FA2_1Ticket, MichelsonNat, MichelsonOption, MichelsonPair,
@@ -945,7 +946,8 @@ mod tests {
 
     #[test]
     fn deposit_execution_outcome_contains_event() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = &RegistryImpl::default();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 
@@ -999,7 +1001,8 @@ mod tests {
 
     #[test]
     fn deposit_execution_fails_due_to_balance_overflow() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = &RegistryImpl::default();
         init_precompile_bytecodes(rk.eth_accounts_mut(), true).unwrap();
 

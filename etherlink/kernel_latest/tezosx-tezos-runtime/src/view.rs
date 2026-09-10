@@ -178,7 +178,7 @@ fn classify_interpret_error(e: InterpretError) -> TezosXRuntimeError {
 pub(crate) fn execute_view_call<Host, KS>(
     chain_id: &tezos_crypto_rs::hash::ChainId,
     registry: &impl tezosx_interfaces::Registry<Journal = tezosx_journal::TezosXJournal>,
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     journal: &mut TezosXJournal,
     request: http::Request<Vec<u8>>,
 ) -> Result<ExecuteRequestOutcome, RequestFailure>

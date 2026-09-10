@@ -384,7 +384,7 @@ impl Evaluation {
     /// traces captured during cross-runtime execution.
     pub fn run<Host, KS>(
         &self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
         tracer_input: Option<TracerInput>,
         spec_id: &SpecId,
@@ -720,7 +720,7 @@ impl<T: Encodable + Decodable> VersionedEncoding for SimulationResult<T, String>
 }
 
 pub fn start_simulation_mode<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     spec_id: &SpecId,
 ) -> Result<(), anyhow::Error>
@@ -750,6 +750,7 @@ mod tests {
         run_transaction, storage::world_state_handler::StorageAccount, GasData,
     };
     use tezos_ethereum::{block::BlockConstants, tx_signature::TxSignature};
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezosx_journal::TezosXJournal;
 
     use crate::registry_impl::RegistryImpl;
@@ -826,7 +827,7 @@ mod tests {
     const STORAGE_CONTRACT_CALL_GET: &str = "6d4ce63c";
 
     #[cfg(test)]
-    fn create_contract<Host, KS>(rk: &mut RuntimeKeyspaces<Host, KS>) -> H160
+    fn create_contract<Host, KS>(rk: &mut RuntimeKeyspaces<'_, Host, KS>) -> H160
     where
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
@@ -896,7 +897,8 @@ mod tests {
     #[test]
     fn simulation_result() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let new_address = create_contract(&mut rk);
 
@@ -955,7 +957,8 @@ mod tests {
     #[test]
     fn evaluation_result_no_gas() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = RegistryImpl::default();
         let new_address = create_contract(&mut rk);
 
@@ -1024,7 +1027,8 @@ mod tests {
     #[test]
     fn parse_simulation2() {
         // setup
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let new_address = create_contract(&mut rk);
 
         let to = Some(new_address);

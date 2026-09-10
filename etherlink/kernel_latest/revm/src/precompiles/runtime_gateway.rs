@@ -350,7 +350,7 @@ fn dispatch_origin_of<
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     addr_str: String,
     source_runtime: RuntimeId,
@@ -420,7 +420,7 @@ fn dispatch_resolve_address<
     KS: SafeKeyspace,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 >(
-    rk: &RuntimeKeyspaces<Host, KS>,
+    rk: &RuntimeKeyspaces<'_, Host, KS>,
     registry: &R,
     addr_str: String,
     source_runtime: RuntimeId,
@@ -526,17 +526,18 @@ fn dispatch_resolve_address<
 ///
 /// Called after each CRAC that may have left truncation residue on the
 /// precompile's balance.
-fn burn_gateway_residual<'j, CTX, Host, KS, R>(
+fn burn_gateway_residual<'j, 'host, CTX, Host, KS, R>(
     context: &mut CTX,
     gas: &mut Gas,
 ) -> Result<(), CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     let snapshot = *gas;
@@ -576,19 +577,20 @@ where
 /// meaning of each field stay identical across surfaces. `target_address`
 /// is always the bare target *contract* — callers strip any
 /// entrypoint/view segment before passing it (L2-1456).
-fn emit_crac_sent<'j, CTX, Host, KS, R>(
+fn emit_crac_sent<'j, 'host, CTX, Host, KS, R>(
     context: &mut CTX,
     crac_id: String,
     target_runtime: &str,
     target_address: String,
     amount: U256,
 ) where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     let crac_log = Log {
@@ -619,18 +621,19 @@ fn emit_crac_sent<'j, CTX, Host, KS, R>(
 ///   originated there and crossed into EVM), its native address is
 ///   resolved from `source_addr` once, here — the only durable read, and
 ///   it lands solely on the genuinely cross-runtime path.
-fn build_original_source<'j, CTX, Host, KS, R>(
+fn build_original_source<'j, 'host, CTX, Host, KS, R>(
     context: &CTX,
     source_addr: Address,
     remaining_evm_gas: u64,
 ) -> Result<OriginalSource, CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     let runtime = context.journal().crac_origin_runtime();
@@ -687,17 +690,18 @@ fn original_source_evm_address<R: Registry<Journal = tezosx_journal::TezosXJourn
 /// Michelson → EVM CRAC frame would forward the immediate sender alias as
 /// `X-Tezos-Source` while `ORIGIN` reported the real transitive source.
 /// `X-Tezos-Sender` stays on the immediate caller.
-fn capture_original_source<'j, CTX, Host, KS, R>(
+fn capture_original_source<'j, 'host, CTX, Host, KS, R>(
     context: &CTX,
     remaining_evm_gas: u64,
 ) -> Result<OriginalSource, CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     let source_addr = context
@@ -714,17 +718,18 @@ where
 /// that re-entered the EVM). The read-only entries persist through here
 /// too, so a nested Michelson `staticcall_evm` view sees the same
 /// originator on the shared journal.
-fn resolve_original_source<'j, CTX, Host, KS, R>(
+fn resolve_original_source<'j, 'host, CTX, Host, KS, R>(
     context: &mut CTX,
     remaining_evm_gas: u64,
 ) -> Result<OriginalSource, CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     if let Some(src) = context.journal().original_source() {
@@ -743,7 +748,7 @@ where
 /// common case), the resolution is performed once and the resulting
 /// alias is reused for both slots — a single `ALIAS_LOOKUP_COST` is
 /// billed instead of two.
-fn resolve_aliases<'j, CTX, Host, KS, R>(
+fn resolve_aliases<'j, 'host, CTX, Host, KS, R>(
     context: &mut CTX,
     gas: &mut Gas,
     target_runtime: RuntimeId,
@@ -751,12 +756,13 @@ fn resolve_aliases<'j, CTX, Host, KS, R>(
     source: Address,
 ) -> Result<(String, String), CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     // --- sender alias ---
@@ -855,7 +861,7 @@ fn inject_tezos_headers(
 /// `headers`. `crac_depth` is `inbound + 1`: counts CRAC hops only, never
 /// REVM CALL frames.
 #[allow(clippy::too_many_arguments)]
-fn inject_tezos_headers_from_context<'j, CTX, Host, KS, R>(
+fn inject_tezos_headers_from_context<'j, 'host, CTX, Host, KS, R>(
     context: &CTX,
     headers: &mut HeaderMap,
     sender_alias: &str,
@@ -866,12 +872,13 @@ fn inject_tezos_headers_from_context<'j, CTX, Host, KS, R>(
     gas: Gas,
 ) -> Result<(), CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     let timestamp = context.block().timestamp();
@@ -893,18 +900,19 @@ where
     )
 }
 
-pub(crate) fn runtime_gateway_precompile<'j, CTX, Host, KS, R>(
+pub(crate) fn runtime_gateway_precompile<'j, 'host, CTX, Host, KS, R>(
     calldata: &[u8],
     context: &mut CTX,
     inputs: &CallInputs,
 ) -> Result<InterpreterResult, CustomPrecompileError>
 where
-    Host: KeyspaceHost<KS> + 'j,
+    'host: 'j,
+    Host: KeyspaceHost<KS> + 'host,
     KS: SafeKeyspace + 'j,
     R: Registry<Journal = tezosx_journal::TezosXJournal> + 'j,
     CTX: ContextTr<
-        Db = EtherlinkVMDB<'j, Host, KS, R>,
-        Journal = Journal<'j, Host, KS, R>,
+        Db = EtherlinkVMDB<'j, 'host, Host, KS, R>,
+        Journal = Journal<'j, 'host, Host, KS, R>,
     >,
 {
     // Reject DELEGATECALL and CALLCODE gateway-wide. Under those
@@ -1392,6 +1400,7 @@ where
 #[cfg(test)]
 mod tests {
     use alloy_sol_types::SolCall;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::RuntimeKeyspaces;
     use tezos_protocol::contract::Contract;
     use tezosx_interfaces::testing::StubRegistry;
@@ -1563,7 +1572,8 @@ mod tests {
     /// → (true, Recorded, addr).
     #[test]
     fn resolve_address_same_runtime_short_circuit() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let addr = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let output = dispatch_resolve_address(
@@ -1584,7 +1594,8 @@ mod tests {
     /// → (false, 0, "").
     #[test]
     fn resolve_address_same_runtime_malformed_addr() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let output = dispatch_resolve_address(
             &rk,
@@ -1603,7 +1614,8 @@ mod tests {
     /// Alias{target, native}: direct lookup → (true, Recorded, native).
     #[test]
     fn resolve_address_alias_direct_lookup() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let native_addr = "KT1_NATIVE".to_string();
         let alias_info = AliasInfo {
             runtime: RuntimeId::Tezos,
@@ -1636,7 +1648,8 @@ mod tests {
     /// target_runtime (Tezos), which would fail if source_runtime were passed.
     #[test]
     fn resolve_address_native_to_derived_recorded() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let source_addr = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let derived_alias = "KT1_DERIVED";
 
@@ -1670,7 +1683,8 @@ mod tests {
     /// Native source → derivation → destination has NO inverse → DERIVED.
     #[test]
     fn resolve_address_native_to_derived_not_recorded() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let source_addr = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let derived_alias = "KT1_DERIVED";
 
@@ -1702,7 +1716,8 @@ mod tests {
     /// takes the derivation path for a Native classification.
     #[test]
     fn resolve_address_evm_native_uses_derivation_path() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let addr_str = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let registry = StubRegistry::with_alias_and_expected_runtime(
             Classification::Native,
@@ -1726,7 +1741,8 @@ mod tests {
     /// EVM Unknown → (false, 0, "").
     #[test]
     fn resolve_address_evm_unknown() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let output = dispatch_resolve_address(
             &rk,
@@ -1746,7 +1762,8 @@ mod tests {
     /// originOf: Unknown → (0, 0, "").
     #[test]
     fn dispatch_origin_of_unknown() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let output = dispatch_origin_of(
             &rk,
@@ -1763,7 +1780,8 @@ mod tests {
     /// originOf: Native → (1, source_runtime, addr).
     #[test]
     fn dispatch_origin_of_native() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Native);
         let addr = "tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx".to_string();
         let output = dispatch_origin_of(
@@ -1782,7 +1800,8 @@ mod tests {
     /// originOf: Alias → (2, home_runtime, native_addr).
     #[test]
     fn dispatch_origin_of_alias() {
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let alias_info = AliasInfo {
             runtime: RuntimeId::Tezos,
             native_address: "KT1_X".to_string(),
@@ -1807,7 +1826,8 @@ mod tests {
         // Durable storage would classify this address as Unknown; a
         // staged overlay entry must take precedence, skip the durable
         // read, and charge the lookup cost.
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let staged = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Tezos,
@@ -1834,7 +1854,8 @@ mod tests {
         // unit, so a Tezos source must bill the same 2100 EVM gas the
         // durable `read_origin` path bills — not 2100 milligas, which
         // converts to a 22x-too-cheap 96 EVM gas.
-        let rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let registry = StubRegistry::with_classification(Classification::Unknown);
         let staged = Origin::Alias(AliasInfo {
             runtime: RuntimeId::Ethereum,

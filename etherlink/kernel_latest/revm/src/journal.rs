@@ -56,12 +56,13 @@ use tezosx_interfaces::{
 /// The journal contains every state change that happens within that call, making it possible to revert changes made in a specific call.
 pub struct Journal<
     'a,
+    'host,
     Host: StorageV1,
     KS,
     R: Registry<Journal = tezosx_journal::TezosXJournal>,
 > {
     /// Database
-    pub database: EtherlinkVMDB<'a, Host, KS, R>,
+    pub database: EtherlinkVMDB<'a, 'host, Host, KS, R>,
 
     /// TezosX journal combining EVM and Michelson journal state.
     pub journal: &'a mut TezosXJournal,
@@ -72,11 +73,16 @@ pub struct Journal<
     deferred_error: Option<RuntimeError>,
 }
 
-impl<'a, Host: StorageV1, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>
-    Journal<'a, Host, KS, R>
+impl<
+        'a,
+        'host,
+        Host: StorageV1,
+        KS,
+        R: Registry<Journal = tezosx_journal::TezosXJournal>,
+    > Journal<'a, 'host, Host, KS, R>
 {
     pub fn new_with_inner(
-        database: EtherlinkVMDB<'a, Host, KS, R>,
+        database: EtherlinkVMDB<'a, 'host, Host, KS, R>,
         journal: &'a mut TezosXJournal,
     ) -> Self {
         Self {
@@ -94,8 +100,13 @@ impl<'a, Host: StorageV1, KS, R: Registry<Journal = tezosx_journal::TezosXJourna
 
 /// Expose the journal-owned tracer to the `TracerInspector` filling the
 /// `Evm` inspector slot (see `evm_inspectors::TracerInspector`).
-impl<'a, Host: StorageV1, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>>
-    TracerContainer for Journal<'a, Host, KS, R>
+impl<
+        'a,
+        'host,
+        Host: StorageV1,
+        KS,
+        R: Registry<Journal = tezosx_journal::TezosXJournal>,
+    > TracerContainer for Journal<'a, 'host, Host, KS, R>
 {
     fn take_tracer(&mut self) -> Option<Box<Tracer>> {
         self.journal.evm.take_tracer()
@@ -110,20 +121,23 @@ impl<'a, Host: StorageV1, KS, R: Registry<Journal = tezosx_journal::TezosXJourna
 /// The only changes are the invocation of `LayeredDB` methods in some functions.
 impl<
         'a,
+        'host,
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
         R: Registry<Journal = tezosx_journal::TezosXJournal>,
-    > JournalTr for Journal<'a, Host, KS, R>
+    > JournalTr for Journal<'a, 'host, Host, KS, R>
 {
-    type Database = EtherlinkVMDB<'a, Host, KS, R>;
+    type Database = EtherlinkVMDB<'a, 'host, Host, KS, R>;
     type State = EvmState;
     type JournaledAccount<'b>
-        = JournaledAccount<'b, EtherlinkVMDB<'a, Host, KS, R>>
+        = JournaledAccount<'b, EtherlinkVMDB<'a, 'host, Host, KS, R>>
     where
-        EtherlinkVMDB<'a, Host, KS, R>: 'b,
+        EtherlinkVMDB<'a, 'host, Host, KS, R>: 'b,
         'a: 'b;
 
-    fn new(_database: EtherlinkVMDB<'a, Host, KS, R>) -> Journal<'a, Host, KS, R> {
+    fn new(
+        _database: EtherlinkVMDB<'a, 'host, Host, KS, R>,
+    ) -> Journal<'a, 'host, Host, KS, R> {
         unimplemented!("Use Journal::new_with_inner instead")
     }
 
@@ -531,7 +545,7 @@ impl<
 }
 
 impl<Host: StorageV1, KS, R: Registry<Journal = tezosx_journal::TezosXJournal>> JournalExt
-    for Journal<'_, Host, KS, R>
+    for Journal<'_, '_, Host, KS, R>
 {
     #[inline]
     fn journal(&self) -> &[JournalEntry] {
@@ -553,7 +567,7 @@ impl<
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
         R: Registry<Journal = tezosx_journal::TezosXJournal>,
-    > Journal<'_, Host, KS, R>
+    > Journal<'_, '_, Host, KS, R>
 {
     pub fn get_and_increment_global_counter(
         &mut self,
@@ -772,10 +786,11 @@ pub trait CrossRuntimeCall {
 
 impl<
         'a,
+        'host,
         Host: KeyspaceHost<KS>,
         KS: SafeKeyspace,
         R: Registry<Journal = TezosXJournal>,
-    > CrossRuntimeCall for Journal<'a, Host, KS, R>
+    > CrossRuntimeCall for Journal<'a, 'host, Host, KS, R>
 {
     fn tezosx_resolve_source_alias(
         &mut self,
@@ -976,7 +991,7 @@ impl<
 }
 
 pub fn commit_evm_journal_from_external<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     block_constants: &BlockConstants,
     journal: &mut TezosXJournal,
@@ -1002,6 +1017,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
     use tezos_smart_rollup_keyspace::KeySpace;
     use tezosx_interfaces::{AliasInfo, Origin};
@@ -1040,7 +1056,8 @@ mod tests {
 
     #[test]
     fn routing_returns_round_trip_for_matching_alias() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let source = Address::from_slice(&[0xaa; 20]);
         write_origin(
@@ -1061,7 +1078,8 @@ mod tests {
 
     #[test]
     fn routing_returns_native_for_native_origin() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let source = Address::from_slice(&[0xcc; 20]);
         write_origin(eth_accounts, &source, Origin::Native);
@@ -1075,7 +1093,8 @@ mod tests {
 
     #[test]
     fn routing_returns_native_for_unrecorded_source() {
-        let rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let source = Address::from_slice(&[0xdd; 20]);
 
         let origin = read_origin(rk.eth_accounts(), &source);
@@ -1089,7 +1108,8 @@ mod tests {
     fn routing_returns_transitive_for_mismatched_runtime() {
         // The recorded info is the basis for derivation toward a third target.
         // Unreachable in two runtime mode.
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let source = Address::from_slice(&[0xbb; 20]);
         write_origin(

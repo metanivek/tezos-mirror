@@ -885,7 +885,7 @@ pub fn read_blueprint(
 
 #[cfg(test)]
 pub fn read_next_blueprint<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     config: &mut Configuration,
 ) -> anyhow::Result<(Option<Blueprint>, usize)>
 where
@@ -966,6 +966,7 @@ mod tests {
     use primitive_types::H256;
     use tezos_crypto_rs::hash::ContractKt1Hash;
     use tezos_ethereum::transaction::TRANSACTION_HASH_SIZE;
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_smart_rollup_encoding::public_key::PublicKey;
     use tezos_tezlink::protocol::TARGET_TEZOS_PROTOCOL;
 
@@ -984,7 +985,8 @@ mod tests {
     }
 
     fn test_invalid_sequencer_blueprint_is_removed(enable_dal: bool) {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let delayed_inbox =
             DelayedInbox::from_base(rk.base()).expect("Delayed inbox should be created");
         let delayed_bridge: ContractKt1Hash =
@@ -1169,7 +1171,8 @@ mod tests {
     // back proves both halves resolve to the same durable location.
     #[test]
     fn store_current_block_header_resolves_to_absolute_path() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let block_header = BlockHeader {
             blueprint_header: BlueprintHeader {
                 number: 7.into(),
@@ -1201,7 +1204,8 @@ mod tests {
     // historical durable locations.
     #[test]
     fn store_sequencer_blueprint_resolves_to_absolute_paths() {
-        let mut rk = RuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = RuntimeKeyspaces::init(&mut host).unwrap();
         let number = U256::from(3);
         let chunk_index = 2u16;
         let nb_chunks = 5u16;

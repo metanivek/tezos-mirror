@@ -15,6 +15,7 @@ use revm_etherlink::{
 };
 use tezos_ethereum::access_list::AccessList;
 use tezos_ethereum::block::{BlockConstants, BlockFees};
+use tezos_evm_runtime::runtime::MockKernelHost;
 use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
 use tezos_smart_rollup_keyspace::KeySpace;
 use tezosx_journal::{RuntimeId, TezosXJournal};
@@ -89,9 +90,10 @@ fn read_testsuite(path: &Path) -> Result<TestSuite, TestError> {
     serde_json::from_reader(&*json_reader).map_err(TestError::from)
 }
 
-fn prepare_rk() -> MockRuntimeKeyspaces {
+/// A fresh mock kernel host for one test, with the debug log emptied.
+fn prepare_host() -> MockKernelHost {
     tezos_evm_logging::DEBUG_LOG.with_borrow_mut(|log| log.truncate(0));
-    MockRuntimeKeyspaces::default()
+    MockKernelHost::default()
 }
 
 fn prepare_filler_source(
@@ -208,7 +210,7 @@ fn u256_to_u128(value: U256) -> u128 {
 
 #[allow(clippy::too_many_arguments)]
 fn execute_transaction(
-    rk: &mut MockRuntimeKeyspaces,
+    rk: &mut MockRuntimeKeyspaces<'_>,
     unit: &TestUnit,
     env: &mut Env,
     spec_id: SpecId,
@@ -339,8 +341,6 @@ pub fn run_test(
     skip_data: &SkipData,
 ) -> Result<(), TestError> {
     let suit = read_testsuite(path)?;
-    let mut rk;
-
     for (name, unit) in suit.0.into_iter() {
         if output.log {
             write_out!(output_file, "Running unit test: {}", name);
@@ -381,7 +381,8 @@ pub fn run_test(
                     }
                     continue;
                 }
-                rk = prepare_rk();
+                let mut host = prepare_host();
+                let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
                 initialize_accounts(rk.eth_accounts_mut(), &unit);
                 let data_label = info.labels.get(&data);
                 if let Some(data_label) = data_label {

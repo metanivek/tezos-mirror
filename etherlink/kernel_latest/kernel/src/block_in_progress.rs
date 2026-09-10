@@ -400,7 +400,7 @@ impl BlockInProgress {
     pub fn register_valid_transaction<Host, KS>(
         &mut self,
         execution_info: RuntimeExecutionInfo,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         michelson_to_evm_gas_multiplier: u64,
     ) -> Result<(), anyhow::Error>
     where
@@ -497,7 +497,7 @@ impl BlockInProgress {
     #[cfg_attr(feature = "benchmark", inline(never))]
     pub fn finalize_and_store<Host, KS>(
         self,
-        rk: &mut RuntimeKeyspaces<Host, KS>,
+        rk: &mut RuntimeKeyspaces<'_, Host, KS>,
         block_constants: &TezosXBlockConstants,
         enable_tezos_runtime: bool,
     ) -> Result<L2Block, anyhow::Error>

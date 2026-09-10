@@ -546,7 +546,7 @@ fn log_transaction_type(to: Option<H160>, data: &[u8]) {
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 pub fn revm_run_transaction<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     journal: &mut TezosXJournal,
     block_constants: &BlockConstants,
@@ -612,7 +612,7 @@ where
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 fn apply_ethereum_transaction_common<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     block_constants: &BlockConstants,
     transaction: &EthereumTransactionCommon,
@@ -785,7 +785,7 @@ impl From<&Deposit> for SolXTZDeposit {
 
 #[allow(clippy::too_many_arguments)]
 pub fn pure_xtz_deposit<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     deposit: &Deposit,
     block_constants: &BlockConstants,
@@ -935,7 +935,7 @@ impl From<&FaDeposit> for SolFaDepositWithoutProxy {
 #[allow(clippy::too_many_arguments)]
 #[trace_kernel]
 pub fn pure_fa_deposit<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     fa_deposit: &FaDeposit,
     block_constants: &BlockConstants,
@@ -1017,7 +1017,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn apply_fa_deposit<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     fa_deposit: &FaDeposit,
     block_constants: &BlockConstants,
@@ -1182,7 +1182,7 @@ where
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 pub fn handle_transaction_result<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     outbox_queue: &OutboxQueue<'_, impl Path>,
     block_constants: &BlockConstants,
     transaction: Transaction,
@@ -1274,7 +1274,7 @@ where
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 pub fn apply_transaction<Host, KS>(
-    rk: &mut RuntimeKeyspaces<Host, KS>,
+    rk: &mut RuntimeKeyspaces<'_, Host, KS>,
     registry: &impl Registry<Journal = tezosx_journal::TezosXJournal>,
     outbox_queue: &OutboxQueue<'_, impl Path>,
     block_constants: &BlockConstants,
@@ -1395,6 +1395,7 @@ pub(crate) mod tests {
         transaction::TransactionType,
         tx_common::EthereumTransactionCommon,
     };
+    use tezos_evm_runtime::runtime::MockKernelHost;
     use tezos_evm_runtime::runtime_keyspaces::MockRuntimeKeyspaces;
     use tezos_smart_rollup_encoding::timestamp::Timestamp;
     use tezos_smart_rollup_keyspace::KeySpace;
@@ -1471,7 +1472,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_valid() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
         // setup
@@ -1502,7 +1504,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_cannot_prepay() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1535,7 +1538,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_signature() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1568,7 +1572,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_wrong_nonce() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1603,7 +1608,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_wrong_chain_id() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1636,7 +1642,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_is_invalid_max_fee_less_than_base_fee() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
@@ -1669,7 +1676,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_tx_invalid_not_enough_gas_for_fee() {
-        let mut rk = MockRuntimeKeyspaces::default();
+        let mut host = MockKernelHost::default();
+        let mut rk = MockRuntimeKeyspaces::init(&mut host).unwrap();
         let eth_accounts = rk.eth_accounts_mut();
         let block_constants = mock_block_constants();
 
