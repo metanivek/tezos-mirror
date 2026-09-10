@@ -9,6 +9,13 @@ stranded above a freshly cut release header. See
 
 ## Version 0.66 (2026-09-10)
 
+This new release notably upgrades the Wasmer runtime version from 3.3.0 to 7.2.1,
+which fixes some crashes on macOS ARM64. Also, it brings several improvements to
+the `debug` RPCs.
+
+This release will not apply any migration to the node's store (version
+24), meaning it is possible to downgrade to previous versions.
+
 ### Breaking changes
 
 - The Michelson runtime no longer supports Tezos protocol S023 (Seoul): the
