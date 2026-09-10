@@ -4005,6 +4005,7 @@ let preemptive_kernel_download_command =
         ~preimages
         ~preimages_endpoint
         ?num_download_retries
+        ~progress:true
         ())
 
 let debug_print_store_schemas_command =
