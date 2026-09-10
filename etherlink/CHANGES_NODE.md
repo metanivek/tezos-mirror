@@ -18,17 +18,14 @@ stranded above a freshly cut release header. See
 
 ### RPCs changes
 
-- `eth_subscribe` on `tez_l1L2Levels` no longer hangs the node, nor replays the
-  recorded levels several times over, when `fromL1Level` is close to the
-  smallest representable 32-bit integer. (!22805)
+- `eth_subscribe` on `tez_l1L2Levels` no longer hangs the node for invalid
+   `fromL1Level`'s input. (!22805)
 - `debug_traceTransaction` / `debug_traceBlockByNumber` / `debug_traceCall`
   with `callTracer` and `withLog: true` correctly hide reverted logs,
   matching geth. (!22574)
-- `debug_traceTransaction` / `debug_traceBlockByNumber` with `callTracer`
-  and `withLog: true` now report the geth `position` field on each log —
-  the index in the enclosing frame's `calls` array at which the log was
-  emitted — as recorded by the kernel when the log fired. A trace produced
-  by a kernel that does not record it reports `0x0`. (!22573)
+- Support exposing the log’s `position` field of geth `debug_traceTransaction` RPC and its
+  companions when the latter is computed by the kernel. _Note: this is not the case for
+  Etherlink Mainnet as of September 2026._ (!22573 !22861)
 
 ### Monitoring changes
 
@@ -44,7 +41,7 @@ stranded above a freshly cut release header. See
   only displayed when the standard error output is a terminal. (!22847)
 - Add support for the Etherlink 7 kernels, `ganesha` and `ganesha-r1`: they can
   be downloaded by name with `download kernel <name>`, and named through
-  `--kernel-compat <name>`. Native execution is not included. (!22835)
+  `--kernel-compat <name>` when generating a kernel configuration. Native execution is not included. (!22835)
 
 ### Execution changes
 
@@ -57,9 +54,9 @@ stranded above a freshly cut release header. See
   WebAssembly proposals accepted by the runtime is unchanged. (!22749)
 - The blueprint validator now accepts the first manager operation of a fresh
   implicit account: a missing stored counter defaults to 0 (so counter 1 is
-  expected), matching the kernel and the queue validator. Previously it
-  defaulted to 1, so block production dropped, with a counter mismatch, the
-  first operation of an account whose funding was not applied yet. (!22717)
+  expected), matching the kernel and the queue validator. This means
+  it is now possible to inject an operation signed by an implicit account in
+  the same block it is funded. (!22717)
 
 ## Version 0.65 (2026-08-24)
 
