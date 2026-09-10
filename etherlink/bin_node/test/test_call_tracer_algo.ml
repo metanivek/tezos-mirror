@@ -274,7 +274,7 @@ let test_decoding_rlp =
                 address = Address (Hex (make_string 20 "19"));
                 topics = [make_hex 32 "19"; make_hex 32 "0d"];
                 data = Hex "000102";
-                position = Qty Z.zero;
+                position = None;
               };
           ]
       in
@@ -339,7 +339,7 @@ let test_decoding_rlp_log_position =
                 address = Address (Hex (make_string 20 "19"));
                 topics = [make_hex 32 "19"; make_hex 32 "0d"];
                 data = Hex "000102";
-                position = Qty Z.one;
+                position = Some (Qty Z.one);
               };
           ]
       in
@@ -486,7 +486,7 @@ let test_decoding_rlp_revert_reason =
                 address = Address (Hex (make_string 20 "19"));
                 topics = [make_hex 32 "19"; make_hex 32 "0d"];
                 data = Hex "000102";
-                position = Qty Z.zero;
+                position = None;
               };
           ]
       in
@@ -624,7 +624,7 @@ let some_logs =
         address = Ethereum_types.(Address (Hex (make_string 20 "19")));
         topics = [make_hex 32 "19"];
         data = Ethereum_types.Hex "000102";
-        position = Ethereum_types.Qty Z.zero;
+        position = Some (Ethereum_types.Qty Z.zero);
       };
   ]
 

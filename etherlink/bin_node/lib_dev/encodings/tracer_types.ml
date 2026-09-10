@@ -953,7 +953,7 @@ module CallTracer = struct
     address : Ethereum_types.address;
     topics : Ethereum_types.hex list;
     data : Ethereum_types.hex;
-    position : Ethereum_types.quantity;
+    position : Ethereum_types.quantity option;
   }
 
   type output = {
@@ -987,7 +987,7 @@ module CallTracer = struct
          (req "address" Ethereum_types.address_encoding)
          (req "topics" (list Ethereum_types.hex_encoding))
          (req "data" Ethereum_types.hex_encoding)
-         (req "position" Ethereum_types.quantity_encoding))
+         (opt "position" Ethereum_types.quantity_encoding))
 
   (* Bytes.sub, but returns an error. *)
   let sub_bytes ?error bytes offset length =
@@ -1114,11 +1114,10 @@ module CallTracer = struct
       return {address; topics; data; position}
     in
     match item with
-    | Rlp.List [address; topics; data] ->
-        decode_body address topics data (Qty Z.zero)
+    | Rlp.List [address; topics; data] -> decode_body address topics data None
     | Rlp.List [address; topics; data; position] ->
         let* position = From_rlp.decode_int position in
-        decode_body address topics data (Qty (Z.of_int position))
+        decode_body address topics data (Some (Qty (Z.of_int position)))
     | _ -> tzfail (error_of_fmt "Invalid RLP encoding for the logs")
 
   let decode_call bytes =
