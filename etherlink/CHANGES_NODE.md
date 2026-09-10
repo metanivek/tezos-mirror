@@ -7,6 +7,60 @@ Entries for the next release live as one file per merge request under
 stranded above a freshly cut release header. See
 [`.changes/README.md`](.changes/README.md).
 
+## Version 0.66 (2026-09-10)
+
+### Breaking changes
+
+- The Michelson runtime no longer supports Tezos protocol S023 (Seoul): the
+  node drops the S023 protocol library and no longer decodes or serves
+  S023-tagged blocks. The oldest supported protocol is now T024 (Tallinn), and
+  blocks predating the protocol field are back-filled with T024. (!22606)
+
+### RPCs changes
+
+- `eth_subscribe` on `tez_l1L2Levels` no longer hangs the node, nor replays the
+  recorded levels several times over, when `fromL1Level` is close to the
+  smallest representable 32-bit integer. (!22805)
+- `debug_traceTransaction` / `debug_traceBlockByNumber` / `debug_traceCall`
+  with `callTracer` and `withLog: true` correctly hide reverted logs,
+  matching geth. (!22574)
+- `debug_traceTransaction` / `debug_traceBlockByNumber` with `callTracer`
+  and `withLog: true` now report the geth `position` field on each log —
+  the index in the enclosing frame's `calls` array at which the log was
+  emitted — as recorded by the kernel when the log fired. A trace produced
+  by a kernel that does not record it reports `0x0`. (!22573)
+
+### Monitoring changes
+
+- The `background_task_error` event now logs the full error string; long
+  errors were previously truncated with an ellipsis, hiding the tail of
+  background-task failures. (!21601)
+
+### Command-line interface changes
+
+- The `download kernel` command now displays a progress bar reporting the
+  number of preimages downloaded out of the total the kernel is made of,
+  instead of staying silent until the whole kernel has been fetched. The bar is
+  only displayed when the standard error output is a terminal. (!22847)
+- Add support for the Etherlink 7 kernels, `ganesha` and `ganesha-r1`: they can
+  be downloaded by name with `download kernel <name>`, and named through
+  `--kernel-compat <name>`. Native execution is not included. (!22835)
+
+### Execution changes
+
+- Raw transactions with non-canonical RLP integer encodings are rejected at
+  admission instead of being accepted by the node and later rejected by the
+  kernel. (!22846)
+- The vendored Wasmer runtime backing WASM execution was upgraded from 3.3.0 to
+  7.2.1, fixing a misaligned `ucontext_t` dereference that made the previous
+  version crash with `SIGILL` or `SIGSEGV` on macOS ARM64. The set of
+  WebAssembly proposals accepted by the runtime is unchanged. (!22749)
+- The blueprint validator now accepts the first manager operation of a fresh
+  implicit account: a missing stored counter defaults to 0 (so counter 1 is
+  expected), matching the kernel and the queue validator. Previously it
+  defaulted to 1, so block production dropped, with a counter mismatch, the
+  first operation of an account whose funding was not applied yet. (!22717)
+
 ## Version 0.65 (2026-08-24)
 
 This new release notably brings several improvements for the Michelson runtime,
